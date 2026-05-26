@@ -175,39 +175,43 @@ sudo cp config.toml /etc/netwatch/
 - `build.sh` — сборка release бинарника
 - `install.sh` — установка в систему
 
-## Размещение на GitHub
+## Contributing
 
-### Инструкция
+Вклад в проект приветствуется! Вот как можно помочь:
 
-1. **Создай репозиторий на GitHub:**
-   - Перейди на https://github.com/new
-   - Введи имя репозитория: `netwatch-monitor`
-   - **Не ставь галочку** "Add README" (репозиторий должен быть пустым)
-   - Нажми "Create repository"
+### Как внести вклад
 
-2. **Отправь код в репозиторий:**
+1. **Fork** проекта
+2. Создай ветку для своей фичи: `git checkout -b feature/amazing-feature`
+3. Сделай **commit** изменений: `git commit -m 'feat: добавлена amazing feature'`
+4. **Push** в ветку: `git push origin feature/amazing-feature`
+5. Открой **Pull Request**
+
+### Guidelines
+
+- Следуй существующему стилю кода
+- Пиши понятные commit сообщения (conventional commits)
+- Добавляй описание изменений в PR
+- Проверяй, что проект собирается: `./build.sh`
+
+### Разработка
 
 ```bash
-cd netwatch
-git remote add origin git@github.com:v-a-v/netwatch-monitor.git
-git push -u origin master
+# Сборка в режиме разработки
+cargo build
+
+# Запуск с логированием
+RUST_LOG=netwatch_monitor=debug cargo run
+
+# Форматирование кода
+cargo fmt
+
+# Проверка кода
+cargo clippy
+
+# Запуск тестов
+cargo test
 ```
-
-**Или через HTTPS** (если SSH ключ не настроен):
-
-```bash
-# Создай Personal Access Token на GitHub:
-# Settings → Developer settings → Personal access tokens → Tokens (classic)
-
-git remote add origin https://github.com/v-a-v/netwatch-monitor.git
-git push -u origin master
-# При запросе пароля вставь токен
-```
-
-### Проверка
-
-После пуша проект доступен по адресу:
-https://github.com/v-a-v/netwatch-monitor
 
 ## License
 
