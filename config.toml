@@ -1,0 +1,72 @@
+# NetWatch Monitor Configuration
+# Add servers you want to monitor
+
+# Ping interval in seconds
+interval = 2
+
+# History size (number of samples to keep per server)
+history_size = 120
+
+# External IP monitoring configuration
+[external_ip]
+# Endpoint to fetch external IP (returns plain IP or JSON)
+endpoint = "https://ifconfig.io/ip"
+
+# Whois is now fetched from ipwho.is automatically (ipwho.is/{IP})
+# This field is kept for compatibility but not used
+whois_endpoint = ""
+
+# How often to check external IP (in seconds)
+check_interval_sec = 300
+
+# Servers to monitor
+[[servers]]
+name = "Gateway"
+host = "192.168.1.1"
+timeout_ms = 1000
+
+[[servers]]
+name = "Google DNS 1"
+host = "8.8.8.8"
+timeout_ms = 1000
+
+[[servers]]
+name = "Google DNS 2"
+host = "8.8.4.4"
+timeout_ms = 1000
+
+[[servers]]
+name = "Cloudflare DNS"
+host = "1.1.1.1"
+timeout_ms = 1000
+
+[[servers]]
+name = "Yandex DNS"
+host = "77.88.8.8"
+timeout_ms = 1000
+
+[[servers]]
+name = "Google HTTPS"
+host = "google.com"
+timeout_ms = 2000
+
+[[servers]]
+name = "GitHub"
+host = "github.com"
+timeout_ms = 2000
+
+[[servers]]
+name = "Yandex"
+host = "ya.ru"
+timeout_ms = 2000
+
+[[servers]]
+name = "2GIS VPN"
+host = "vpn.2gis.ru"
+timeout_ms = 2000
+
+[[servers]]
+name = "2GIS Jira"
+host = "jira.2gis.ru"
+timeout_ms = 2000
+
