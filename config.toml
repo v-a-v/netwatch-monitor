@@ -60,13 +60,3 @@ name = "Yandex"
 host = "ya.ru"
 timeout_ms = 2000
 
-[[servers]]
-name = "2GIS VPN"
-host = "vpn.2gis.ru"
-timeout_ms = 2000
-
-[[servers]]
-name = "2GIS Jira"
-host = "jira.2gis.ru"
-timeout_ms = 2000
-
