@@ -26,6 +26,9 @@ ping = "0.3"
 # Time utilities
 chrono = "0.4"
 
+# Directory paths
+dirs = "5"
+
 # Error handling
 anyhow = "1"
 

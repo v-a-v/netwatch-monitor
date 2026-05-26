@@ -86,9 +86,18 @@ impl Config {
             external_ip: ExternalIpConfig::default(),
         };
 
+        // Check in order of priority
         if let Ok(config) = Self::load("config.toml") {
             Ok(config)
         } else if let Ok(config) = Self::load("config.toml.example") {
+            Ok(config)
+        } else if let Ok(config) = Self::load(
+            dirs::home_dir()
+                .map(|h| h.join(".config/netwatch/config.toml"))
+                .unwrap_or_else(|| std::path::PathBuf::from("config.toml"))
+        ) {
+            Ok(config)
+        } else if let Ok(config) = Self::load("/etc/netwatch/config.toml") {
             Ok(config)
         } else {
             Ok(default_config)
