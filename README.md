@@ -24,8 +24,8 @@
 
 ```bash
 # 1. Клонируйте репозиторий
-git clone <repo-url>
-cd netwatch
+git clone git@github.com:v-a-v/netwatch-monitor.git
+cd netwatch-monitor
 
 # 2. Соберите бинарник
 ./build.sh
