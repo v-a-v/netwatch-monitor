@@ -175,6 +175,40 @@ sudo cp config.toml /etc/netwatch/
 - `build.sh` — сборка release бинарника
 - `install.sh` — установка в систему
 
+## Размещение на GitHub
+
+### Инструкция
+
+1. **Создай репозиторий на GitHub:**
+   - Перейди на https://github.com/new
+   - Введи имя репозитория: `netwatch-monitor`
+   - **Не ставь галочку** "Add README" (репозиторий должен быть пустым)
+   - Нажми "Create repository"
+
+2. **Отправь код в репозиторий:**
+
+```bash
+cd netwatch
+git remote add origin git@github.com:v-a-v/netwatch-monitor.git
+git push -u origin master
+```
+
+**Или через HTTPS** (если SSH ключ не настроен):
+
+```bash
+# Создай Personal Access Token на GitHub:
+# Settings → Developer settings → Personal access tokens → Tokens (classic)
+
+git remote add origin https://github.com/v-a-v/netwatch-monitor.git
+git push -u origin master
+# При запросе пароля вставь токен
+```
+
+### Проверка
+
+После пуша проект доступен по адресу:
+https://github.com/v-a-v/netwatch-monitor
+
 ## License
 
 MIT
