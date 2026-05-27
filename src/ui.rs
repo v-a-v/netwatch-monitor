@@ -5,7 +5,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table},
+    widgets::{Block, Borders, Cell, Paragraph, Row, Table},
     Frame,
 };
 
@@ -212,23 +212,6 @@ fn render_help(frame: &mut Frame, area: Rect) {
     frame.render_widget(help, area);
 }
 
-/// Render a modal dialog
-pub fn render_modal(frame: &mut Frame, area: Rect, title: &str, content: &str) {
-    let modal_area = centered_rect(60, 60, area);
-
-    let modal = Paragraph::new(content)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(title)
-                .border_style(Style::default().fg(Color::Yellow)),
-        )
-        .style(Style::default().fg(Color::White));
-
-    frame.render_widget(Clear, modal_area);
-    frame.render_widget(modal, modal_area);
-}
-
 /// Render ping detail view
 pub fn render_ping_detail(frame: &mut Frame, server_name: &str, host: &str, ping_output: &str) {
     let size = frame.area();
@@ -265,24 +248,4 @@ pub fn render_ping_detail(frame: &mut Frame, server_name: &str, host: &str, ping
         .style(Style::default().fg(Color::DarkGray))
         .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(Color::DarkGray)));
     frame.render_widget(help, chunks[2]);
-}
-
-fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
-    let popup_layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage((100 - percent_y) / 2),
-            Constraint::Percentage(percent_y),
-            Constraint::Percentage((100 - percent_y) / 2),
-        ])
-        .split(r);
-
-    Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage((100 - percent_x) / 2),
-            Constraint::Percentage(percent_x),
-            Constraint::Percentage((100 - percent_x) / 2),
-        ])
-        .split(popup_layout[1])[1]
 }

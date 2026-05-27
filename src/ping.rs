@@ -1,9 +1,11 @@
 use chrono::Utc;
-use std::time::Duration;
+
+use tokio::io::AsyncBufReadExt;
 
 /// Result of a single ping attempt
 #[derive(Debug, Clone)]
 pub struct PingResult {
+    #[allow(dead_code)]
     pub timestamp: chrono::DateTime<Utc>,
     pub success: bool,
     pub latency_ms: Option<f64>,
@@ -155,47 +157,67 @@ pub async fn ping_host_continuous(
     host: String,
     timeout_ms: u64,
     tx: tokio::sync::mpsc::Sender<String>,
-    stop_rx: tokio::sync::mpsc::Receiver<()>,
+    mut stop_rx: tokio::sync::mpsc::Receiver<()>,
 ) {
-    let mut interval = tokio::time::interval(Duration::from_secs(1));
-    let mut stop = stop_rx;
-
-    loop {
-        tokio::select! {
-            _ = interval.tick() => {
-                let output = run_ping_command(&host, timeout_ms);
-                let _ = tx.send(output).await;
-            }
-            _ = stop.recv() => {
-                break;
-            }
-        }
-    }
-}
-
-/// Run ping command and return output
-fn run_ping_command(host: &str, timeout_ms: u64) -> String {
+    let mut ping_output = String::new();
+    let max_lines = 50;
+    
+    let timeout_str = timeout_ms.to_string();
+    
     #[cfg(target_os = "windows")]
-    let output = std::process::Command::new("ping")
-        .args(["-t", "-w", &timeout_ms.to_string(), host])
-        .output();
+    let args = vec!["-t", "-w", timeout_str.as_str(), host.as_str()];
+    
+    #[cfg(not(target_os = "windows"))]
+    let args = vec!["-W", timeout_str.as_str(), host.as_str()];
+
+    // Spawn ping process
+    #[cfg(target_os = "windows")]
+    let child = tokio::process::Command::new("ping")
+        .args(&args)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true)
+        .spawn();
 
     #[cfg(not(target_os = "windows"))]
-    let output = std::process::Command::new("ping")
-        .args(["-c", "1", "-W", &timeout_ms.to_string(), host])
-        .output();
+    let child = tokio::process::Command::new("ping")
+        .args(&args)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true)
+        .spawn();
 
-    match output {
-        Ok(out) => {
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            let stderr = String::from_utf8_lossy(&out.stderr);
-            if out.status.success() {
-                format!("{}", stdout)
-            } else {
-                format!("{}{}", stdout, stderr)
+    if let Ok(mut child) = child {
+        if let Some(stdout) = child.stdout.take() {
+            let mut reader = tokio::io::BufReader::new(stdout).lines();
+            
+            loop {
+                tokio::select! {
+                    _ = stop_rx.recv() => {
+                        break;
+                    }
+                    line = reader.next_line() => {
+                        match line {
+                            Ok(Some(l)) => {
+                                ping_output.push_str(&l);
+                                ping_output.push('\n');
+                                
+                                // Keep only last N lines
+                                let lines: Vec<&str> = ping_output.lines().collect();
+                                if lines.len() > max_lines {
+                                    ping_output = lines[lines.len() - max_lines..].join("\n");
+                                    ping_output.push('\n');
+                                }
+                                
+                                let _ = tx.send(ping_output.clone()).await;
+                            }
+                            Ok(None) => break, // EOF
+                            Err(_) => break,
+                        }
+                    }
+                }
             }
         }
-        Err(e) => format!("Error: {}", e),
     }
 }
 

@@ -14,6 +14,7 @@ pub struct ExternalIpInfo {
     pub isp: Option<String>,
     pub org: Option<String>,
     pub as_number: Option<String>,
+    #[allow(dead_code)]
     pub error: Option<String>,
 }
 
@@ -58,47 +59,6 @@ fn parse_json_whois(response: &str) -> (Option<String>, Option<String>, Option<S
     }
 
     (None, None, None, None, None)
-}
-
-/// Parse whois response (plain text format)
-fn parse_whois(response: &str) -> (Option<String>, Option<String>, Option<String>, Option<String>, Option<String>) {
-    let mut country = None;
-    let mut city = None;
-    let mut isp = None;
-    let as_number = None;
-
-    for line in response.lines() {
-        let line_lower = line.to_lowercase();
-        
-        if country.is_none() && (line_lower.contains("country") || line_lower.contains("descr")) {
-            if let Some(idx) = line.find(':') {
-                let value = line[idx + 1..].trim().to_string();
-                if !value.is_empty() && country.is_none() {
-                    country = Some(value);
-                }
-            }
-        }
-        
-        if city.is_none() && line_lower.contains("city") {
-            if let Some(idx) = line.find(':') {
-                let value = line[idx + 1..].trim().to_string();
-                if !value.is_empty() {
-                    city = Some(value);
-                }
-            }
-        }
-        
-        if isp.is_none() && (line_lower.contains("isp") || line_lower.contains("org")) {
-            if let Some(idx) = line.find(':') {
-                let value = line[idx + 1..].trim().to_string();
-                if !value.is_empty() && isp.is_none() {
-                    isp = Some(value);
-                }
-            }
-        }
-    }
-
-    (country, city, isp, None, as_number)
 }
 
 /// Fetch external IP from endpoint

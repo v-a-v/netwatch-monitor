@@ -94,6 +94,7 @@ async fn main() -> Result<()> {
     let mut detail_ping_output = String::new();
     let mut detail_stop_tx: Option<tokio::sync::mpsc::Sender<()>> = None;
     let mut detail_ping_rx: Option<tokio::sync::mpsc::Receiver<String>> = None;
+    let mut detail_handle: Option<tokio::task::JoinHandle<()>> = None;
 
     // Main loop
     while running {
@@ -141,14 +142,17 @@ async fn main() -> Result<()> {
                             
                             let host = server.host.clone();
                             let timeout = server.timeout_ms;
-                            tokio::spawn(async move {
+                            detail_handle = Some(tokio::spawn(async move {
                                 ping_host_continuous(host, timeout, detail_tx, stop_rx).await;
-                            });
+                            }));
                         }
                         KeyCode::Esc if mode == AppMode::PingDetail => {
                             // Stop continuous ping and return to list
                             if let Some(stop_tx) = detail_stop_tx.take() {
                                 let _ = stop_tx.send(()).await;
+                            }
+                            if let Some(handle) = detail_handle.take() {
+                                handle.abort();
                             }
                             mode = AppMode::List;
                             detail_ping_output.clear();
@@ -205,6 +209,13 @@ async fn main() -> Result<()> {
     // Cleanup
     drop(tx);
     for handle in ping_handles {
+        handle.abort();
+    }
+    // Cleanup detail ping handle
+    if let Some(stop_tx) = detail_stop_tx {
+        let _ = stop_tx.send(()).await;
+    }
+    if let Some(handle) = detail_handle {
         handle.abort();
     }
 
