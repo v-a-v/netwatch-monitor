@@ -1,4 +1,5 @@
 use chrono::Utc;
+use std::time::Duration;
 
 /// Result of a single ping attempt
 #[derive(Debug, Clone)]
@@ -147,6 +148,55 @@ pub async fn ping_host(host: String, timeout_ms: u64) -> PingResult {
     });
 
     result
+}
+
+/// Run continuous ping and yield results via channel
+pub async fn ping_host_continuous(
+    host: String,
+    timeout_ms: u64,
+    tx: tokio::sync::mpsc::Sender<String>,
+    stop_rx: tokio::sync::mpsc::Receiver<()>,
+) {
+    let mut interval = tokio::time::interval(Duration::from_secs(1));
+    let mut stop = stop_rx;
+
+    loop {
+        tokio::select! {
+            _ = interval.tick() => {
+                let output = run_ping_command(&host, timeout_ms);
+                let _ = tx.send(output).await;
+            }
+            _ = stop.recv() => {
+                break;
+            }
+        }
+    }
+}
+
+/// Run ping command and return output
+fn run_ping_command(host: &str, timeout_ms: u64) -> String {
+    #[cfg(target_os = "windows")]
+    let output = std::process::Command::new("ping")
+        .args(["-t", "-w", &timeout_ms.to_string(), host])
+        .output();
+
+    #[cfg(not(target_os = "windows"))]
+    let output = std::process::Command::new("ping")
+        .args(["-c", "1", "-W", &timeout_ms.to_string(), host])
+        .output();
+
+    match output {
+        Ok(out) => {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            if out.status.success() {
+                format!("{}", stdout)
+            } else {
+                format!("{}{}", stdout, stderr)
+            }
+        }
+        Err(e) => format!("Error: {}", e),
+    }
 }
 
 /// Extract latency from ping output (works for Linux/macOS/Windows)

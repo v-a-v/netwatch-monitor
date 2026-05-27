@@ -229,6 +229,44 @@ pub fn render_modal(frame: &mut Frame, area: Rect, title: &str, content: &str) {
     frame.render_widget(modal, modal_area);
 }
 
+/// Render ping detail view
+pub fn render_ping_detail(frame: &mut Frame, server_name: &str, host: &str, ping_output: &str) {
+    let size = frame.area();
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3),  // Header
+            Constraint::Min(10),    // Ping output
+            Constraint::Length(3),  // Help
+        ])
+        .split(size);
+
+    // Header
+    let header = Paragraph::new(format!("🔍 Ping: {} ({})", server_name, host))
+        .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+        .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(Color::Cyan)));
+    frame.render_widget(header, chunks[0]);
+
+    // Ping output
+    let output = Paragraph::new(ping_output.to_string())
+        .style(Style::default().fg(Color::White))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Live Ping Output")
+                .border_style(Style::default().fg(Color::Green)),
+        )
+        .scroll((0, 0));
+    frame.render_widget(output, chunks[1]);
+
+    // Help
+    let help = Paragraph::new("Esc: Back | q: Quit")
+        .style(Style::default().fg(Color::DarkGray))
+        .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(Color::DarkGray)));
+    frame.render_widget(help, chunks[2]);
+}
+
 fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
     let popup_layout = Layout::default()
         .direction(Direction::Vertical)

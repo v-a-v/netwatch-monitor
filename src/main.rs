@@ -18,8 +18,14 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use config::Config;
 use external_ip::ExternalIpInfo;
-use ping::{ping_host, PingResult};
-use ui::render;
+use ping::{ping_host, ping_host_continuous, PingResult};
+use ui::{render, render_ping_detail};
+
+#[derive(PartialEq, Clone, Copy)]
+enum AppMode {
+    List,
+    PingDetail,
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -82,23 +88,34 @@ async fn main() -> Result<()> {
     let mut selected_server: usize = 0;
     let mut external_ip_info: Option<ExternalIpInfo> = None;
     let mut running = true;
+    let mut mode = AppMode::List;
+
+    // For ping detail view
+    let mut detail_ping_output = String::new();
+    let mut detail_stop_tx: Option<tokio::sync::mpsc::Sender<()>> = None;
+    let mut detail_ping_rx: Option<tokio::sync::mpsc::Receiver<String>> = None;
 
     // Main loop
     while running {
-        // Process ping results
-        while let Ok((server_idx, ping_result)) = rx.try_recv() {
-            if let Some(server_results) = results.get_mut(server_idx) {
-                server_results.push_back(ping_result);
-                // Keep only the last N results
-                while server_results.len() > history_size {
-                    server_results.pop_front();
+        // Process ping results (only in list mode)
+        if mode == AppMode::List {
+            while let Ok((server_idx, ping_result)) = rx.try_recv() {
+                if let Some(server_results) = results.get_mut(server_idx) {
+                    server_results.push_back(ping_result);
+                    // Keep only the last N results
+                    while server_results.len() > history_size {
+                        server_results.pop_front();
+                    }
                 }
             }
-        }
 
-        // Process external IP updates
-        while let Ok(ip_info) = ip_rx.try_recv() {
-            external_ip_info = Some(ip_info);
+            // Process external IP updates
+            while let Ok(ip_info) = ip_rx.try_recv() {
+                external_ip_info = Some(ip_info);
+            }
+        } else {
+            // In detail mode, process ping output
+            // (handled by separate channel)
         }
 
         // Handle user input
@@ -110,20 +127,46 @@ async fn main() -> Result<()> {
                         KeyCode::Char('r') => {
                             // Manual refresh - results will come from the ping tasks
                         }
-                        KeyCode::Up | KeyCode::Char('k') => {
+                        KeyCode::Enter if mode == AppMode::List => {
+                            // Switch to detail mode
+                            mode = AppMode::PingDetail;
+                            let server = &config.servers[selected_server];
+                            
+                            // Start continuous ping
+                            let (detail_tx, detail_rx) = mpsc::channel::<String>(100);
+                            let (stop_tx, stop_rx) = mpsc::channel(1);
+                            
+                            detail_stop_tx = Some(stop_tx);
+                            detail_ping_rx = Some(detail_rx);
+                            
+                            let host = server.host.clone();
+                            let timeout = server.timeout_ms;
+                            tokio::spawn(async move {
+                                ping_host_continuous(host, timeout, detail_tx, stop_rx).await;
+                            });
+                        }
+                        KeyCode::Esc if mode == AppMode::PingDetail => {
+                            // Stop continuous ping and return to list
+                            if let Some(stop_tx) = detail_stop_tx.take() {
+                                let _ = stop_tx.send(()).await;
+                            }
+                            mode = AppMode::List;
+                            detail_ping_output.clear();
+                        }
+                        KeyCode::Up | KeyCode::Char('k') if mode == AppMode::List => {
                             if selected_server > 0 {
                                 selected_server -= 1;
                             }
                         }
-                        KeyCode::Down | KeyCode::Char('j') => {
+                        KeyCode::Down | KeyCode::Char('j') if mode == AppMode::List => {
                             if selected_server < config.servers.len() - 1 {
                                 selected_server += 1;
                             }
                         }
-                        KeyCode::Home => {
+                        KeyCode::Home if mode == AppMode::List => {
                             selected_server = 0;
                         }
-                        KeyCode::End => {
+                        KeyCode::End if mode == AppMode::List => {
                             selected_server = config.servers.len() - 1;
                         }
                         _ => {}
@@ -132,16 +175,31 @@ async fn main() -> Result<()> {
             }
         }
 
-        // Convert VecDeque to Vec for rendering
-        let results_vec: Vec<Vec<PingResult>> = results
-            .iter()
-            .map(|dq| dq.iter().cloned().collect())
-            .collect();
+        // Render based on mode
+        if mode == AppMode::List {
+            // Convert VecDeque to Vec for rendering
+            let results_vec: Vec<Vec<PingResult>> = results
+                .iter()
+                .map(|dq| dq.iter().cloned().collect())
+                .collect();
 
-        // Render UI
-        terminal.draw(|frame| {
-            render(frame, &config.servers, &results_vec, selected_server, external_ip_info.as_ref());
-        })?;
+            // Render UI
+            terminal.draw(|frame| {
+                render(frame, &config.servers, &results_vec, selected_server, external_ip_info.as_ref());
+            })?;
+        } else {
+            // In detail mode, try to get latest ping output
+            if let Some(ref mut rx) = detail_ping_rx {
+                while let Ok(output) = rx.try_recv() {
+                    detail_ping_output = output;
+                }
+            }
+            
+            let server = &config.servers[selected_server];
+            terminal.draw(|frame| {
+                render_ping_detail(frame, &server.name, &server.host, &detail_ping_output);
+            })?;
+        }
     }
 
     // Cleanup
