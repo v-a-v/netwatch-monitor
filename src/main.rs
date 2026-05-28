@@ -104,8 +104,6 @@ async fn main() -> Result<()> {
     let mut detail_ping_rx: Option<tokio::sync::mpsc::Receiver<String>> = None;
     let mut detail_handle: Option<tokio::task::JoinHandle<()>> = None;
 
-    let mut tick: u8 = 0;
-
     // Main loop
     while running {
         // Process ping results (only in list mode)
@@ -193,8 +191,6 @@ async fn main() -> Result<()> {
             }
         }
 
-        tick = tick.wrapping_add(1);
-
         // Render based on mode
         if mode == AppMode::List {
             // Convert VecDeque to Vec for rendering
@@ -205,7 +201,7 @@ async fn main() -> Result<()> {
 
             // Render UI
             terminal.draw(|frame| {
-                render(frame, &config.servers, &results_vec, selected_server, external_ip_info.as_ref(), tick);
+                render(frame, &config.servers, &results_vec, selected_server, external_ip_info.as_ref(), 0);
             })?;
         } else {
             // In detail mode, try to get latest ping output

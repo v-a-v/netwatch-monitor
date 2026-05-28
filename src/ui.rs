@@ -74,19 +74,12 @@ fn render_server_list(
     servers: &[ServerConfig],
     results: &[Vec<PingResult>],
     selected: usize,
-    tick: u8,
+    _tick: u8,
 ) {
     let rows: Vec<Row> = servers
         .iter()
         .enumerate()
         .map(|(i, server)| {
-            let spinner = match tick % 4 {
-                0 => "⠁",
-                1 => "⠂",
-                2 => "⠄",
-                _ => "⠂",
-            };
-
             let stats = PingStats::from_results(&results[i]);
 
             let status = if let Some(ref dns_err) = stats.dns_error {
@@ -120,8 +113,7 @@ fn render_server_list(
 
             Row::new(vec![
                 Cell::from(format!(
-                    "{} {} {}",
-                    spinner,
+                    "{} {}",
                     if i == selected { "▶" } else { " " },
                     server.name
                 )),
