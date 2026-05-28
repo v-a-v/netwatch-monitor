@@ -16,7 +16,6 @@ pub fn render(
     results: &[Vec<PingResult>],
     selected: usize,
     external_ip: Option<&ExternalIpInfo>,
-    tick: u8,
 ) {
     let size = frame.area();
 
@@ -31,7 +30,7 @@ pub fn render(
         .split(size);
 
     render_header(frame, chunks[0], external_ip);
-    render_server_list(frame, chunks[1], servers, results, selected, tick);
+    render_server_list(frame, chunks[1], servers, results, selected);
     render_stats(frame, chunks[2], &results[selected]);
     render_help(frame, chunks[3]);
 }
@@ -107,17 +106,12 @@ fn render_server_list(
     servers: &[ServerConfig],
     results: &[Vec<PingResult>],
     selected: usize,
-    tick: u8,
 ) {
     let rows: Vec<Row> = servers
         .iter()
         .enumerate()
         .map(|(i, server)| {
             let stats = PingStats::from_results(&results[i]);
-
-            let spinner = match tick % 4 {
-                0 => "⠁", 1 => "⠂", 2 => "⠄", _ => "⠂",
-            };
 
             let status = if let Some(ref dns_err) = stats.dns_error {
                 format!("🚫 {}", dns_err)
@@ -142,13 +136,27 @@ fn render_server_list(
                 _ => Color::Red,
             };
 
+            let status_color = if stats.dns_error.is_some() {
+                Color::Red
+            } else if stats.successful_pings > 0 {
+                if stats.packet_loss_percent > 50.0 {
+                    Color::Red
+                } else if stats.packet_loss_percent > 20.0 {
+                    Color::Yellow
+                } else {
+                    Color::Green
+                }
+            } else {
+                Color::Gray
+            };
+
             Row::new(vec![
-                Cell::from(format!("{} {} {}", spinner,
+                Cell::from(format!("{} {}",
                     if i == selected { "▶" } else { " " }, server.name)),
                 Cell::from(Span::styled(server.host.clone(), Style::default().fg(Color::Gray))),
                 Cell::from(Span::styled(format!("{:.1}ms", stats.avg_ms), Style::default().fg(avg_color))),
                 Cell::from(ttl),
-                Cell::from(Span::styled(status, Style::default().fg(avg_color))),
+                Cell::from(Span::styled(status, Style::default().fg(status_color))),
                 Cell::from(render_history_bar(&results[i])),
             ])
         })

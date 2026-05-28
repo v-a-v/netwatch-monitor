@@ -201,7 +201,7 @@ async fn main() -> Result<()> {
 
             // Render UI
             terminal.draw(|frame| {
-                render(frame, &config.servers, &results_vec, selected_server, external_ip_info.as_ref(), 0);
+                render(frame, &config.servers, &results_vec, selected_server, external_ip_info.as_ref());
             })?;
         } else {
             // In detail mode, try to get latest ping output
