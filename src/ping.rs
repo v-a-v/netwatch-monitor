@@ -159,7 +159,8 @@ pub async fn ping_host_continuous(
     tx: tokio::sync::mpsc::Sender<String>,
     mut stop_rx: tokio::sync::mpsc::Receiver<()>,
 ) {
-    let mut ping_output = String::new();
+    use std::collections::VecDeque;
+        let mut lines_buf: VecDeque<String> = VecDeque::new();
     let max_lines = 50;
     
     let timeout_str = timeout_ms.to_string();
@@ -176,16 +177,14 @@ pub async fn ping_host_continuous(
         .args(&args)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
-        .kill_on_drop(true)
-        .spawn();
+                .spawn();
 
     #[cfg(not(target_os = "windows"))]
     let child = tokio::process::Command::new("ping")
         .args(&args)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
-        .kill_on_drop(true)
-        .spawn();
+                .spawn();
 
     if let Ok(mut child) = child {
         if let Some(stdout) = child.stdout.take() {
@@ -194,25 +193,30 @@ pub async fn ping_host_continuous(
             loop {
                 tokio::select! {
                     _ = stop_rx.recv() => {
+                        let _ = child.kill().await;
+                        let _ = child.wait().await;
                         break;
                     }
                     line = reader.next_line() => {
                         match line {
                             Ok(Some(l)) => {
-                                ping_output.push_str(&l);
-                                ping_output.push('\n');
-                                
-                                // Keep only last N lines
-                                let lines: Vec<&str> = ping_output.lines().collect();
-                                if lines.len() > max_lines {
-                                    ping_output = lines[lines.len() - max_lines..].join("\n");
-                                    ping_output.push('\n');
+                                lines_buf.push_back(l);
+                                while lines_buf.len() > max_lines {
+                                    lines_buf.pop_front();
                                 }
-                                
-                                let _ = tx.send(ping_output.clone()).await;
+                                if let Some(last) = lines_buf.back() {
+                                    let _ = tx.send(last.clone()).await;
+                                }
                             }
-                            Ok(None) => break, // EOF
-                            Err(_) => break,
+                            Ok(None) => {
+                                let _ = child.wait().await;
+                                break;
+                            }
+                            Err(_) => {
+                                let _ = child.kill().await;
+                                let _ = child.wait().await;
+                                break;
+                            }
                         }
                     }
                 }

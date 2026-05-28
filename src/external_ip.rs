@@ -179,6 +179,7 @@ pub async fn update_external_ip_info(config: &ExternalIpConfig) -> ExternalIpInf
 pub fn spawn_external_ip_monitor(
     config: ExternalIpConfig,
     tx: tokio::sync::mpsc::Sender<ExternalIpInfo>,
+    mut shutdown_rx: tokio::sync::broadcast::Receiver<()>,
 ) {
     tokio::spawn(async move {
         let mut interval = interval(Duration::from_secs(config.check_interval_sec));
@@ -192,13 +193,18 @@ pub fn spawn_external_ip_monitor(
         }
 
         loop {
-            interval.tick().await;
-            
-            match update_external_ip_info(&config).await {
-                info if info.ip.is_some() => {
-                    let _ = tx.send(info).await;
+            tokio::select! {
+                _ = shutdown_rx.recv() => {
+                    break;
                 }
-                _ => {}
+                _ = interval.tick() => {
+                    match update_external_ip_info(&config).await {
+                        info if info.ip.is_some() => {
+                            let _ = tx.send(info).await;
+                        }
+                        _ => {}
+                    }
+                }
             }
         }
     });

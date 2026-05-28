@@ -16,22 +16,22 @@ pub fn render(
     results: &[Vec<PingResult>],
     selected: usize,
     external_ip: Option<&ExternalIpInfo>,
+    tick: u8,
 ) {
     let size = frame.area();
 
-    // Main layout: header, servers list, stats, help
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),  // Header
-            Constraint::Min(10),    // Server list
-            Constraint::Length(8),  // Stats
-            Constraint::Length(3),  // Help
+            Constraint::Length(3),
+            Constraint::Min(10),
+            Constraint::Length(8),
+            Constraint::Length(3),
         ])
         .split(size);
 
     render_header(frame, chunks[0], external_ip);
-    render_server_list(frame, chunks[1], servers, results, selected);
+    render_server_list(frame, chunks[1], servers, results, selected, tick);
     render_stats(frame, chunks[2], &results[selected]);
     render_help(frame, chunks[3]);
 }
@@ -68,13 +68,27 @@ fn render_header(frame: &mut Frame, area: Rect, external_ip: Option<&ExternalIpI
     frame.render_widget(header, area);
 }
 
-fn render_server_list(frame: &mut Frame, area: Rect, servers: &[ServerConfig], results: &[Vec<PingResult>], selected: usize) {
+fn render_server_list(
+    frame: &mut Frame,
+    area: Rect,
+    servers: &[ServerConfig],
+    results: &[Vec<PingResult>],
+    selected: usize,
+    tick: u8,
+) {
     let rows: Vec<Row> = servers
         .iter()
         .enumerate()
         .map(|(i, server)| {
+            let spinner = match tick % 4 {
+                0 => "⠁",
+                1 => "⠂",
+                2 => "⠄",
+                _ => "⠂",
+            };
+
             let stats = PingStats::from_results(&results[i]);
-            
+
             let status = if let Some(ref dns_err) = stats.dns_error {
                 format!("🚫 {}", dns_err)
             } else if stats.successful_pings > 0 {
@@ -92,12 +106,29 @@ fn render_server_list(frame: &mut Frame, area: Rect, servers: &[ServerConfig], r
             let ttl = stats.ttl.map(|t| t.to_string()).unwrap_or_else(|| "--".to_string());
             let history = render_history_bar(&results[i]);
 
+            let avg_color = if let Some(_) = stats.dns_error {
+                Color::Gray
+            } else if stats.avg_ms < 50.0 {
+                Color::Green
+            } else if stats.avg_ms < 100.0 {
+                Color::Yellow
+            } else if stats.avg_ms < 200.0 {
+                Color::LightRed
+            } else {
+                Color::Red
+            };
+
             Row::new(vec![
-                Cell::from(format!("{} {}", if i == selected { "▶" } else { " " }, server.name)),
+                Cell::from(format!(
+                    "{} {} {}",
+                    spinner,
+                    if i == selected { "▶" } else { " " },
+                    server.name
+                )),
                 Cell::from(Span::styled(server.host.clone(), Style::default().fg(Color::Gray))),
-                Cell::from(format!("{:.1}ms", if stats.avg_ms > 0.0 { stats.avg_ms } else { 0.0 })),
+                Cell::from(Span::styled(format!("{:.1}ms", stats.avg_ms), Style::default().fg(avg_color))),
                 Cell::from(ttl),
-                Cell::from(status),
+                Cell::from(Span::styled(status, Style::default().fg(avg_color))),
                 Cell::from(history),
             ])
         })
@@ -106,24 +137,35 @@ fn render_server_list(frame: &mut Frame, area: Rect, servers: &[ServerConfig], r
     let table = Table::new(
         rows,
         [
-            Constraint::Length(25),
-            Constraint::Length(20),
-            Constraint::Length(10),
-            Constraint::Length(10),
-            Constraint::Length(12),
-            Constraint::Min(35),
+            Constraint::Length(22),
+            Constraint::Min(20),
+            Constraint::Length(8),
+            Constraint::Length(6),
+            Constraint::Min(15),
+            Constraint::Min(30),
         ],
     )
-    .header(Row::new(vec![
-        Cell::from("Server"),
-        Cell::from("Host"),
-        Cell::from("Avg (ms)"),
-        Cell::from("Hop"),
-        Cell::from("Status"),
-        Cell::from("History"),
-    ])
-    .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)))
-    .block(Block::default().borders(Borders::ALL).title("Servers").border_style(Style::default().fg(Color::Blue)))
+    .header(
+        Row::new(vec![
+            Cell::from("Server"),
+            Cell::from("Host"),
+            Cell::from("Avg (ms)"),
+            Cell::from("Hop"),
+            Cell::from("Status"),
+            Cell::from("History"),
+        ])
+        .style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ),
+    )
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title("Servers")
+            .border_style(Style::default().fg(Color::Blue)),
+    )
     .row_highlight_style(
         Style::default()
             .bg(Color::DarkGray)
@@ -199,8 +241,12 @@ fn render_stats(frame: &mut Frame, area: Rect, results: &[PingResult]) {
         )),
     ];
 
-    let stats_paragraph = Paragraph::new(stats_text)
-        .block(Block::default().borders(Borders::ALL).title("Statistics").border_style(Style::default().fg(Color::Green)));
+    let stats_paragraph = Paragraph::new(stats_text).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title("Statistics")
+            .border_style(Style::default().fg(Color::Green)),
+    );
 
     frame.render_widget(stats_paragraph, area);
 }
@@ -208,31 +254,50 @@ fn render_stats(frame: &mut Frame, area: Rect, results: &[PingResult]) {
 fn render_help(frame: &mut Frame, area: Rect) {
     let help = Paragraph::new("↑/↓: Select server | q: Quit | r: Refresh now")
         .style(Style::default().fg(Color::DarkGray))
-        .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(Color::DarkGray)));
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::DarkGray)),
+        );
     frame.render_widget(help, area);
 }
 
-/// Render ping detail view
-pub fn render_ping_detail(frame: &mut Frame, server_name: &str, host: &str, ping_output: &str) {
+pub fn render_ping_detail(
+    frame: &mut Frame,
+    server_name: &str,
+    host: &str,
+    ping_output: &str,
+) {
     let size = frame.area();
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),  // Header
-            Constraint::Min(10),    // Ping output
-            Constraint::Length(3),  // Help
+            Constraint::Length(3),
+            Constraint::Min(10),
+            Constraint::Length(3),
         ])
         .split(size);
 
-    // Header
     let header = Paragraph::new(format!("🔍 Ping: {} ({})", server_name, host))
         .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
-        .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(Color::Cyan)));
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Cyan)),
+        );
     frame.render_widget(header, chunks[0]);
 
-    // Ping output
-    let output = Paragraph::new(ping_output.to_string())
+    let lines: Vec<&str> = ping_output.lines().collect();
+    let total = lines.len() as u16;
+    let available = chunks[1].height.saturating_sub(2);
+    let offset = if total > available {
+        total - available
+    } else {
+        0
+    };
+
+    let output = Paragraph::new(ping_output)
         .style(Style::default().fg(Color::White))
         .block(
             Block::default()
@@ -240,12 +305,16 @@ pub fn render_ping_detail(frame: &mut Frame, server_name: &str, host: &str, ping
                 .title("Live Ping Output")
                 .border_style(Style::default().fg(Color::Green)),
         )
-        .scroll((0, 0));
+        .scroll((offset, 0));
+
     frame.render_widget(output, chunks[1]);
 
-    // Help
     let help = Paragraph::new("Esc: Back | q: Quit")
         .style(Style::default().fg(Color::DarkGray))
-        .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(Color::DarkGray)));
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::DarkGray)),
+        );
     frame.render_widget(help, chunks[2]);
 }

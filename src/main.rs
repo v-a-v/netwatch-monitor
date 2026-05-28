@@ -58,11 +58,12 @@ async fn main() -> Result<()> {
     let mut terminal = Terminal::new(backend)?;
 
     // Create channels for communication
+    let (shutdown_tx, _) = tokio::sync::broadcast::channel::<()>(1);
     let (tx, mut rx) = mpsc::channel::<(usize, PingResult)>(100);
     let (ip_tx, mut ip_rx) = mpsc::channel::<ExternalIpInfo>(5);
 
     // Spawn external IP monitor
-    external_ip::spawn_external_ip_monitor(config.external_ip.clone(), ip_tx);
+    external_ip::spawn_external_ip_monitor(config.external_ip.clone(), ip_tx, shutdown_tx.subscribe());
 
     // Spawn ping tasks for each server
     let mut ping_handles = vec![];
@@ -72,11 +73,18 @@ async fn main() -> Result<()> {
         let timeout = server.timeout_ms;
         let interval = Duration::from_secs(config.interval);
 
+        let mut shutdown_rx = shutdown_tx.subscribe();
         let handle = tokio::spawn(async move {
             loop {
-                let result = ping_host(host.clone(), timeout).await;
-                let _ = tx_clone.send((idx, result)).await;
-                tokio::time::sleep(interval).await;
+                tokio::select! {
+                    _ = shutdown_rx.recv() => {
+                        break;
+                    }
+                    _ = tokio::time::sleep(interval) => {
+                        let result = ping_host(host.clone(), timeout).await;
+                        let _ = tx_clone.send((idx, result)).await;
+                    }
+                }
             }
         });
         ping_handles.push(handle);
@@ -91,10 +99,12 @@ async fn main() -> Result<()> {
     let mut mode = AppMode::List;
 
     // For ping detail view
-    let mut detail_ping_output = String::new();
+    let mut detail_ping_output: VecDeque<String> = VecDeque::new();
     let mut detail_stop_tx: Option<tokio::sync::mpsc::Sender<()>> = None;
     let mut detail_ping_rx: Option<tokio::sync::mpsc::Receiver<String>> = None;
     let mut detail_handle: Option<tokio::task::JoinHandle<()>> = None;
+
+    let mut tick: u8 = 0;
 
     // Main loop
     while running {
@@ -152,10 +162,14 @@ async fn main() -> Result<()> {
                                 let _ = stop_tx.send(()).await;
                             }
                             if let Some(handle) = detail_handle.take() {
-                                handle.abort();
+                                let _ = handle.await;
+                            }
+                            // clear buffer
+                            detail_ping_output.clear();
+                            if let Some(ref mut rx) = detail_ping_rx {
+                                while rx.try_recv().is_ok() {}
                             }
                             mode = AppMode::List;
-                            detail_ping_output.clear();
                         }
                         KeyCode::Up | KeyCode::Char('k') if mode == AppMode::List => {
                             if selected_server > 0 {
@@ -179,6 +193,8 @@ async fn main() -> Result<()> {
             }
         }
 
+        tick = tick.wrapping_add(1);
+
         // Render based on mode
         if mode == AppMode::List {
             // Convert VecDeque to Vec for rendering
@@ -189,19 +205,23 @@ async fn main() -> Result<()> {
 
             // Render UI
             terminal.draw(|frame| {
-                render(frame, &config.servers, &results_vec, selected_server, external_ip_info.as_ref());
+                render(frame, &config.servers, &results_vec, selected_server, external_ip_info.as_ref(), tick);
             })?;
         } else {
             // In detail mode, try to get latest ping output
             if let Some(ref mut rx) = detail_ping_rx {
-                while let Ok(output) = rx.try_recv() {
-                    detail_ping_output = output;
+                while let Ok(line) = rx.try_recv() {
+                    detail_ping_output.push_back(line);
+                        if detail_ping_output.len() > 50 {
+                            detail_ping_output.pop_front();
+                        }
                 }
             }
             
             let server = &config.servers[selected_server];
             terminal.draw(|frame| {
-                render_ping_detail(frame, &server.name, &server.host, &detail_ping_output);
+                let joined = detail_ping_output.iter().cloned().collect::<Vec<_>>().join("\n");
+                render_ping_detail(frame, &server.name, &server.host, &joined);
             })?;
         }
     }
