@@ -9,7 +9,7 @@ use ratatui::{
     Frame,
 };
 
-/// Render the main UI
+/// Render the main TUI
 pub fn render(
     frame: &mut Frame,
     servers: &[ServerConfig],
@@ -36,72 +36,78 @@ pub fn render(
     render_help(frame, chunks[3]);
 }
 
+/// HEADER BLOCK
 fn render_header(frame: &mut Frame, area: Rect, external_ip: Option<&ExternalIpInfo>) {
-    let now = chrono::Local::now();
-    let datetime = now.format("%H:%M:%S");
+    let time = chrono::Local::now().format("%H:%M:%S");
 
     let ip_info = match external_ip {
-        Some(info) => {
-            if let Some(ref ip) = info.ip {
-                // Build location string with country code and region
-                let mut location_parts = Vec::new();
-                
-                // Add country with code
-                if let (Some(country), Some(code)) = (&info.country, &info.country_code) {
-                    location_parts.push(format!("{} {}", code, country));
-                } else if let Some(country) = &info.country {
-                    location_parts.push(country.clone());
-                }
-                
-                // Add region/state
-                if let Some(region) = &info.region {
-                    location_parts.push(region.clone());
-                }
-                
-                // Add city
-                if let Some(city) = &info.city {
-                    location_parts.push(city.clone());
-                }
-                
-                // Add coordinates if available
-                if let (Some(lat), Some(lon)) = (info.latitude, info.longitude) {
-                    location_parts.push(format!("{:.1}°N {:.1}°E", lat, lon));
-                }
-                
-                let location = location_parts.join(", ");
-                format!("🌍 {} ({})", ip, location)
-            } else {
-                "🌍 Loading...".to_string()
+        Some(info) if info.ip.is_some() => {
+            let ip = info.ip.clone().unwrap();
+
+            let mut parts: Vec<String> = Vec::new();
+            if let Some(v) = &info.city { parts.push(v.clone()); }
+            if let Some(v) = &info.region { parts.push(v.clone()); }
+            if let Some(country) = &info.country {
+                let cc = info.country_code.clone().unwrap_or_default();
+                if cc.is_empty() { parts.push(country.clone()); }
+                else { parts.push(format!("{} [{}]", country, cc)); }
             }
+            if let Some(v) = &info.as_number { parts.push(v.clone()); }
+            if let Some(v) = &info.isp { parts.push(v.clone()); }
+            if let Some(v) = &info.org { parts.push(v.clone()); }
+            if let Some(v) = &info.timezone { parts.push(v.clone()); }
+            if let (Some(lat), Some(lon)) = (info.latitude, info.longitude) {
+                parts.push(format!("{:.0}°N {:.0}°E", lat, lon));
+            }
+
+            let updated = info.last_update.clone().unwrap_or("??:??:??".into());
+
+            let mut s = format!("🌍 {} ({}) • {}", ip, parts.join(", "), updated);
+
+            // dynamic width
+            let max_width = area.width.saturating_sub(6) as usize;
+
+            if s.len() > max_width {
+                let mut compact = Vec::<String>::new();
+                if let Some(v) = &info.city { compact.push(v.clone()); }
+                if let Some(v) = &info.country_code { compact.push(v.clone()); }
+                if let Some(v) = &info.as_number { compact.push(v.clone()); }
+
+                s = format!("🌍 {} ({}) • {}", ip, compact.join(", "), updated);
+            }
+
+            if s.len() > max_width {
+                let cc = info.country_code.clone().unwrap_or_default();
+                let asn = info.as_number.clone().unwrap_or_default();
+                s = format!("🌍 {} ({}, {}) • {}", ip, cc, asn, updated);
+            }
+
+            s
         }
-        None => "🌍 Detecting...".to_string(),
+        _ => "🌍 Detecting...".into(),
     };
 
-    // Truncate IP info for smaller screens
-    let ip_display = if ip_info.len() > 50 {
-        format!("{}...", &ip_info[..47])
-    } else {
-        ip_info
-    };
-
-    let header_text = format!(
-        "🌐 NetWatch  │  {}  │  {}",
-        datetime, ip_display
+    let header = Paragraph::new(
+        format!("🌐 NetWatch │ {} │ {}", time, ip_info)
+    )
+    .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Cyan)),
     );
 
-    let header = Paragraph::new(header_text)
-        .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
-        .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(Color::Cyan)));
     frame.render_widget(header, area);
 }
 
+/// SERVER LIST
 fn render_server_list(
     frame: &mut Frame,
     area: Rect,
     servers: &[ServerConfig],
     results: &[Vec<PingResult>],
     selected: usize,
-    _tick: u8,
+    tick: u8,
 ) {
     let rows: Vec<Row> = servers
         .iter()
@@ -109,44 +115,41 @@ fn render_server_list(
         .map(|(i, server)| {
             let stats = PingStats::from_results(&results[i]);
 
-            let (status, status_color) = if let Some(ref _dns_err) = stats.dns_error {
-                (format!("🚫 DNS resolution failed"), Color::Red)
-            } else if stats.successful_pings > 0 {
-                if stats.packet_loss_percent > 50.0 {
-                    (format!("🔴 {:.1}% loss", stats.packet_loss_percent), Color::Red)
-                } else if stats.packet_loss_percent > 20.0 {
-                    (format!("🟠 {:.1}% loss", stats.packet_loss_percent), Color::Yellow)
-                } else {
-                    (format!("🟢 {:.1}% loss", stats.packet_loss_percent), Color::Green)
-                }
-            } else {
-                ("NO DATA".to_string(), Color::Gray)
+            let spinner = match tick % 4 {
+                0 => "⠁", 1 => "⠂", 2 => "⠄", _ => "⠂",
             };
 
-            let ttl = stats.ttl.map(|t| t.to_string()).unwrap_or_else(|| "--".to_string());
-            let history = render_history_bar(&results[i]);
-
-            let avg_color = if stats.avg_ms < 50.0 {
-                Color::Green
-            } else if stats.avg_ms < 100.0 {
-                Color::Yellow
-            } else if stats.avg_ms < 200.0 {
-                Color::LightRed
+            let status = if let Some(ref dns_err) = stats.dns_error {
+                format!("🚫 {}", dns_err)
+            } else if stats.successful_pings > 0 {
+                if stats.packet_loss_percent > 50.0 {
+                    format!("🔴 {:.1}% loss", stats.packet_loss_percent)
+                } else if stats.packet_loss_percent > 20.0 {
+                    format!("🟠 {:.1}% loss", stats.packet_loss_percent)
+                } else {
+                    format!("🟢 {:.1}% loss", stats.packet_loss_percent)
+                }
             } else {
-                Color::Red
+                "NO DATA".into()
+            };
+
+            let ttl = stats.ttl.map(|t| t.to_string()).unwrap_or_else(|| "--".into());
+
+            let avg_color = match stats.avg_ms {
+                x if x < 50.0 => Color::Green,
+                x if x < 100.0 => Color::Yellow,
+                x if x < 200.0 => Color::LightRed,
+                _ => Color::Red,
             };
 
             Row::new(vec![
-                Cell::from(format!(
-                    "{} {}",
-                    if i == selected { "▶" } else { " " },
-                    server.name
-                )),
+                Cell::from(format!("{} {} {}", spinner,
+                    if i == selected { "▶" } else { " " }, server.name)),
                 Cell::from(Span::styled(server.host.clone(), Style::default().fg(Color::Gray))),
                 Cell::from(Span::styled(format!("{:.1}ms", stats.avg_ms), Style::default().fg(avg_color))),
                 Cell::from(ttl),
-                Cell::from(Span::styled(status, Style::default().fg(status_color))),
-                Cell::from(history),
+                Cell::from(Span::styled(status, Style::default().fg(avg_color))),
+                Cell::from(render_history_bar(&results[i])),
             ])
         })
         .collect();
@@ -154,12 +157,12 @@ fn render_server_list(
     let table = Table::new(
         rows,
         [
-            Constraint::Percentage(25),
-            Constraint::Percentage(20),
-            Constraint::Length(10),
-            Constraint::Length(8),
-            Constraint::Length(14),
-            Constraint::Percentage(30),
+            Constraint::Length(25),
+            Constraint::Min(30),
+            Constraint::Length(12),
+            Constraint::Length(6),
+            Constraint::Min(20),
+            Constraint::Min(40),
         ],
     )
     .header(
@@ -171,16 +174,10 @@ fn render_server_list(
             Cell::from("Status"),
             Cell::from("History"),
         ])
-        .style(
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
-        ),
+        .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
     )
     .block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title("Servers")
+        Block::default().borders(Borders::ALL).title("Servers")
             .border_style(Style::default().fg(Color::Blue)),
     )
     .row_highlight_style(
@@ -193,43 +190,41 @@ fn render_server_list(
     frame.render_widget(table, area);
 }
 
+/// HISTORY BAR
 fn render_history_bar(results: &[PingResult]) -> String {
     if results.is_empty() {
-        return " ".repeat(30);
+        return " ".repeat(40);
     }
 
-    let recent: Vec<&PingResult> = results.iter().rev().take(30).collect();
+    let recent: Vec<&PingResult> = results.iter().rev().take(40).collect();
     let mut bar = String::new();
 
-    for result in recent.iter().rev() {
-        let color = if result.success {
-            match result.latency_ms {
-                Some(lat) if lat < 50.0 => "█",
-                Some(lat) if lat < 100.0 => "▓",
-                Some(lat) if lat < 200.0 => "▒",
+    for r in recent.iter().rev() {
+        let symbol = if r.success {
+            match r.latency_ms {
+                Some(x) if x < 50.0 => "█",
+                Some(x) if x < 100.0 => "▓",
+                Some(x) if x < 200.0 => "▒",
                 _ => "░",
             }
         } else {
             "✗"
         };
-        bar.push_str(color);
+        bar.push_str(symbol);
     }
 
     bar
 }
 
+/// STATISTICS PANEL
 fn render_stats(frame: &mut Frame, area: Rect, results: &[PingResult]) {
     let stats = PingStats::from_results(results);
 
     let status_color = if stats.packet_loss_percent > 50.0 {
         Color::Red
-    } else if stats.packet_loss_percent > 20.0 {
-        Color::Yellow
-    } else if stats.successful_pings > 0 {
-        Color::Green
-    } else {
-        Color::Gray
-    };
+    } else if stats.packet_loss_percent > 20.0 { Color::Yellow }
+    else if stats.successful_pings > 0 { Color::Green }
+    else { Color::Gray };
 
     let stats_text = vec![
         Line::from(vec![
@@ -268,17 +263,20 @@ fn render_stats(frame: &mut Frame, area: Rect, results: &[PingResult]) {
     frame.render_widget(stats_paragraph, area);
 }
 
+/// HELP FOOTER
 fn render_help(frame: &mut Frame, area: Rect) {
-    let help = Paragraph::new("↑/↓: Select server | q: Quit | r: Refresh now")
+    let help = Paragraph::new("↑/↓: Select | Enter: Detail | Esc/q: Quit | r: Refresh")
         .style(Style::default().fg(Color::DarkGray))
         .block(
             Block::default()
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(Color::DarkGray)),
         );
+
     frame.render_widget(help, area);
 }
 
+/// PING DETAIL VIEW
 pub fn render_ping_detail(
     frame: &mut Frame,
     server_name: &str,
@@ -287,7 +285,7 @@ pub fn render_ping_detail(
 ) {
     let size = frame.area();
 
-    let chunks = Layout::default()
+    let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(3),
@@ -303,18 +301,15 @@ pub fn render_ping_detail(
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(Color::Cyan)),
         );
-    frame.render_widget(header, chunks[0]);
+
+    frame.render_widget(header, layout[0]);
 
     let lines: Vec<&str> = ping_output.lines().collect();
     let total = lines.len() as u16;
-    let available = chunks[1].height.saturating_sub(2);
-    let offset = if total > available {
-        total - available
-    } else {
-        0
-    };
+    let available = layout[1].height.saturating_sub(2);
+    let offset = if total > available { total - available } else { 0 };
 
-    let output = Paragraph::new(ping_output)
+    let output = Paragraph::new(ping_output.to_string())
         .style(Style::default().fg(Color::White))
         .block(
             Block::default()
@@ -324,7 +319,7 @@ pub fn render_ping_detail(
         )
         .scroll((offset, 0));
 
-    frame.render_widget(output, chunks[1]);
+    frame.render_widget(output, layout[1]);
 
     let help = Paragraph::new("Esc: Back | q: Quit")
         .style(Style::default().fg(Color::DarkGray))
@@ -333,5 +328,6 @@ pub fn render_ping_detail(
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(Color::DarkGray)),
         );
-    frame.render_widget(help, chunks[2]);
+
+    frame.render_widget(help, layout[2]);
 }

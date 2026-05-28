@@ -1,7 +1,5 @@
-use anyhow::Result;
 use serde::Deserialize;
 use tokio::time::{interval, Duration};
-use tracing::{debug, error, info};
 use crate::config::ExternalIpConfig;
 
 #[derive(Debug, Clone, Default)]
@@ -18,6 +16,7 @@ pub struct ExternalIpInfo {
     pub longitude: Option<f64>,
     pub timezone: Option<String>,
     pub last_update: Option<String>,
+    #[allow(dead_code)]
     pub error: Option<String>,
 }
 
@@ -28,12 +27,6 @@ fn parse_plain_ip(response: &str) -> Option<String> {
     } else {
         Some(ip.to_string())
     }
-}
-
-fn parse_json_ip(response: &str) -> Option<String> {
-    #[derive(Deserialize)]
-    struct IpResp { ip: Option<String> }
-    serde_json::from_str::<IpResp>(response).ok()?.ip
 }
 
 fn parse_json_whois(response: &str) -> ExternalIpInfo {

@@ -16,6 +16,7 @@ fn default_timeout() -> u64 {
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct ExternalIpConfig {
     #[serde(default = "default_ifconfig_endpoint")]
+    #[allow(dead_code)]
     pub endpoint: String,
     #[serde(default, skip)]
     #[allow(dead_code)]
