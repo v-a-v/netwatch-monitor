@@ -38,7 +38,7 @@ pub fn render(
 
 fn render_header(frame: &mut Frame, area: Rect, external_ip: Option<&ExternalIpInfo>) {
     let now = chrono::Local::now();
-    let datetime = now.format("%Y-%m-%d %H:%M:%S");
+    let datetime = now.format("%H:%M:%S");
 
     let ip_info = match external_ip {
         Some(info) => {
@@ -57,9 +57,16 @@ fn render_header(frame: &mut Frame, area: Rect, external_ip: Option<&ExternalIpI
         None => "🌍 Detecting...".to_string(),
     };
 
+    // Truncate IP info for smaller screens
+    let ip_display = if ip_info.len() > 35 {
+        format!("{}...", &ip_info[..32])
+    } else {
+        ip_info
+    };
+
     let header_text = format!(
-        "🌐 NetWatch Monitor  │  {}  │  {}",
-        datetime, ip_info
+        "🌐 NetWatch  │  {}  │  {}",
+        datetime, ip_display
     );
 
     let header = Paragraph::new(header_text)
@@ -127,12 +134,12 @@ fn render_server_list(
     let table = Table::new(
         rows,
         [
-            Constraint::Length(22),
-            Constraint::Min(20),
+            Constraint::Percentage(25),
+            Constraint::Percentage(20),
+            Constraint::Length(10),
             Constraint::Length(8),
-            Constraint::Length(6),
-            Constraint::Min(15),
-            Constraint::Min(30),
+            Constraint::Length(14),
+            Constraint::Percentage(30),
         ],
     )
     .header(
@@ -168,10 +175,10 @@ fn render_server_list(
 
 fn render_history_bar(results: &[PingResult]) -> String {
     if results.is_empty() {
-        return " ".repeat(40);
+        return " ".repeat(30);
     }
 
-    let recent: Vec<&PingResult> = results.iter().rev().take(40).collect();
+    let recent: Vec<&PingResult> = results.iter().rev().take(30).collect();
     let mut bar = String::new();
 
     for result in recent.iter().rev() {
