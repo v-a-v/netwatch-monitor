@@ -82,26 +82,24 @@ fn render_server_list(
         .map(|(i, server)| {
             let stats = PingStats::from_results(&results[i]);
 
-            let status = if let Some(ref dns_err) = stats.dns_error {
-                format!("🚫 {}", dns_err)
+            let (status, status_color) = if let Some(ref _dns_err) = stats.dns_error {
+                (format!("🚫 DNS resolution failed"), Color::Red)
             } else if stats.successful_pings > 0 {
                 if stats.packet_loss_percent > 50.0 {
-                    format!("🔴 {:.1}% loss", stats.packet_loss_percent)
+                    (format!("🔴 {:.1}% loss", stats.packet_loss_percent), Color::Red)
                 } else if stats.packet_loss_percent > 20.0 {
-                    format!("🟠 {:.1}% loss", stats.packet_loss_percent)
+                    (format!("🟠 {:.1}% loss", stats.packet_loss_percent), Color::Yellow)
                 } else {
-                    format!("🟢 {:.1}% loss", stats.packet_loss_percent)
+                    (format!("🟢 {:.1}% loss", stats.packet_loss_percent), Color::Green)
                 }
             } else {
-                "NO DATA".to_string()
+                ("NO DATA".to_string(), Color::Gray)
             };
 
             let ttl = stats.ttl.map(|t| t.to_string()).unwrap_or_else(|| "--".to_string());
             let history = render_history_bar(&results[i]);
 
-            let avg_color = if let Some(_) = stats.dns_error {
-                Color::Gray
-            } else if stats.avg_ms < 50.0 {
+            let avg_color = if stats.avg_ms < 50.0 {
                 Color::Green
             } else if stats.avg_ms < 100.0 {
                 Color::Yellow
@@ -120,7 +118,7 @@ fn render_server_list(
                 Cell::from(Span::styled(server.host.clone(), Style::default().fg(Color::Gray))),
                 Cell::from(Span::styled(format!("{:.1}ms", stats.avg_ms), Style::default().fg(avg_color))),
                 Cell::from(ttl),
-                Cell::from(Span::styled(status, Style::default().fg(avg_color))),
+                Cell::from(Span::styled(status, Style::default().fg(status_color))),
                 Cell::from(history),
             ])
         })
