@@ -6,13 +6,14 @@
 
 - 🌐 Мониторинг нескольких серверов одновременно
 - 📊 История пингов в виде heatmap (справа налево)
-- 📈 Статистика: min/avg/max latency, packet loss %, TTL
-- 🎨 Красивый цветовой индикатор статуса
+- 📈 Статистика: min/avg/max latency, packet loss %, TTL/hops
+- 🎨 Цветовая индикация: latency и packet loss
 - ⌨️ Управление с клавиатуры
 - ⚙️ Конфигурация через TOML файл
 - 🕐 Текущее время в заголовке
 - 🌍 Определение внешнего IP с city/country информацией
 - 🔍 Детальный режим просмотра ping (нажми Enter на сервере)
+- 📱 Адаптивный интерфейс под размер терминала
 
 ## Установка
 
@@ -50,44 +51,44 @@ chmod +x ~/.local/bin/netwatch-monitor
 sudo install -Dm755 target/release/netwatch-monitor /usr/local/bin/netwatch-monitor
 ```
 
-### Проверка установки
-
-```bash
-which netwatch-monitor
-netwatch-monitor --help  # или просто запустить
-```
-
 ## Конфигурация
 
-### По умолчанию
+### Поиск конфигурации
 
 Программа ищет `config.toml` в следующих местах (по приоритету):
 
-1. Текущая директория запуска
+1. `./config.toml` (текущая директория)
 2. `~/.config/netwatch/config.toml`
 3. `/etc/netwatch/config.toml`
+4. Встроенные значения по умолчанию
 
-### Пример config.toml
+### Полный пример config.toml
 
 ```toml
 # Интервал пинга в секундах
 interval = 2
 
 # Размер истории (количество сэмплов на сервер)
-history_size = 60
+history_size = 120
 
 # Внешний IP мониторинг
 [external_ip]
 # Эндпоинт для получения внешнего IP
 endpoint = "https://ifconfig.io/ip"
 
-# Whois эндпоинт (добавляет IP в конец URL)
-whois_endpoint = "https://ifconfig.io/whois/"
+# Whois информация автоматически берется с ipwho.is
+# Этот параметр не используется, оставлен для совместимости
+whois_endpoint = ""
 
-# Интервал проверки внешнего IP (секунды)
+# Как часто проверять внешний IP (секунды)
 check_interval_sec = 300
 
 # Список серверов для мониторинга
+[[servers]]
+name = "Gateway"
+host = "192.168.1.1"
+timeout_ms = 1000
+
 [[servers]]
 name = "Google DNS"
 host = "8.8.8.8"
@@ -99,27 +100,18 @@ host = "1.1.1.1"
 timeout_ms = 1000
 
 [[servers]]
-name = "Yandex DNS"
-host = "77.88.8.8"
-timeout_ms = 1000
-
-[[servers]]
 name = "GitHub"
 host = "github.com"
 timeout_ms = 2000
 ```
 
-### Создание пользовательской конфигурации
+### Параметры сервера
 
-```bash
-# Для пользователя
-mkdir -p ~/.config/netwatch
-cp config.toml ~/.config/netwatch/
-
-# Или для всей системы (требуется root)
-sudo mkdir -p /etc/netwatch
-sudo cp config.toml /etc/netwatch/
-```
+| Параметр | Описание | По умолчанию |
+|----------|----------|--------------|
+| `name` | Отображаемое имя сервера | - |
+| `host` | IP адрес или доменное имя | - |
+| `timeout_ms` | Таймаут ping в миллисекундах | 1000 |
 
 ## Управление
 
@@ -153,31 +145,38 @@ sudo cp config.toml /etc/netwatch/
 ✗ - ping failed     (ошибка)
 ```
 
-### Индикаторы статуса
+### Цветовая индикация
 
-- 🟢 - 0% packet loss
-- 🟡 - < 20% packet loss
-- 🟠 - 20-50% packet loss
-- 🔴 - > 50% packet loss
+**Latency (Avg ms):**
+- 🟢 Зеленый: < 50ms
+- 🟡 Желтый: < 100ms
+- 🟠 LightRed: < 200ms
+- 🔴 Красный: > 200ms
+
+**Status (Packet Loss):**
+- 🟢 Зеленый: 0% потерь
+- 🟠 Желтый: < 20% потерь
+- 🔴 Красный: > 20% потерь или DNS ошибка
+- ⚪ Серый: Нет данных
 
 ## Пример экрана
 
 ```
 ┌───────────────────────────────────────────────────────────────────────────┐
-│ 🌐 NetWatch Monitor  │  2026-05-26 13:45:21  │  🌍 91.108.4.12 (RU / Moscow) │
+│ 🌐 NetWatch  │  13:45:21  │  🌍 91.108.4.12 (Moscow, RU)                  │
 ├───────────────────────────────────────────────────────────────────────────┤
-│ Server                Host                 Avg (ms) TTL   Status Histo... │
-│ ▶ Google DNS          8.8.8.8              12.3     TTL:58  🟢 0.0% ████▓▒│
-│   Cloudflare DNS      1.1.1.1              15.7     TTL:52  🟢 0.0% ████▓▓│
-│   Yandex DNS          77.88.8.8            8.2      TTL:48  🟢 0.0% ██████│
-│   Google HTTPS        google.com           45.1     TTL:54  🟡 5.0% ███▓▒░│
-│   GitHub              github.com           89.3     TTL:42  🟢 0.0% ▓▓▒▒░░│
+│ Server            Host               Avg (ms) Hop Status      History     │
+│ ▶ Google DNS      8.8.8.8            12.3     58  🟢 0.0% ████▓▓▒░       │
+│   Cloudflare      1.1.1.1            15.7     52  🟢 0.0% ████▓▓▒░       │
+│   Yandex DNS      77.88.8.8          8.2      48  🟢 0.0% ████████       │
+│   GitHub          github.com         89.3     42  🟢 0.0% ▓▓▒▒░░         │
+│   Bad Domain      nonexistent.ru     0.0     --   🚫 DNS resolution... ✗✗│
 ├───────────────────────────────────────────────────────────────────────────┤
-│ Min: 8.20ms Avg: 12.30ms Max: 25.40ms                                     │
-│ Packet Loss: 0.0% Success: 60/60                                          │
-│ Legend: █ <50ms ▓ <100ms ▒ <200ms ░ >200ms ✗ fail                         │
+│ Min: 8.20ms  Avg: 12.30ms  Max: 25.40ms                                   │
+│ Packet Loss: 0.0%  Success: 60/60                                         │
+│ Legend: █ <50ms ▓ <100ms ▒ <200ms ░ >200ms ✗ fail                        │
 ├───────────────────────────────────────────────────────────────────────────┤
-│ ↑/↓: Select server | q: Quit                                              │
+│ ↑/↓: Select | Enter: Detail | q: Quit                                     │
 └───────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -188,22 +187,15 @@ sudo cp config.toml /etc/netwatch/
 
 ## Contributing
 
-Вклад в проект приветствуется! Вот как можно помочь:
+Вклад в проект приветствуется!
 
 ### Как внести вклад
 
 1. **Fork** проекта
-2. Создай ветку для своей фичи: `git checkout -b feature/amazing-feature`
-3. Сделай **commit** изменений: `git commit -m 'feat: добавлена amazing feature'`
-4. **Push** в ветку: `git push origin feature/amazing-feature`
+2. Создай ветку: `git checkout -b feature/amazing-feature`
+3. Сделай **commit**: `git commit -m 'feat: добавлена amazing feature'`
+4. **Push**: `git push origin feature/amazing-feature`
 5. Открой **Pull Request**
-
-### Guidelines
-
-- Следуй существующему стилю кода
-- Пиши понятные commit сообщения (conventional commits)
-- Добавляй описание изменений в PR
-- Проверяй, что проект собирается: `./build.sh`
 
 ### Разработка
 

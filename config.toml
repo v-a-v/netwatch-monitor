@@ -9,11 +9,11 @@ history_size = 120
 
 # External IP monitoring configuration
 [external_ip]
-# Endpoint to fetch external IP (returns plain IP or JSON)
+# Endpoint to fetch external IP (returns plain IP)
 endpoint = "https://ifconfig.io/ip"
 
-# Whois is now fetched from ipwho.is automatically (ipwho.is/{IP})
-# This field is kept for compatibility but not used
+# Whois information is automatically fetched from ipwho.is (ipwho.is/{IP})
+# This field is kept for config compatibility but not used
 whois_endpoint = ""
 
 # How often to check external IP (in seconds)
@@ -59,4 +59,3 @@ timeout_ms = 2000
 name = "Yandex"
 host = "ya.ru"
 timeout_ms = 2000
-
