@@ -10,10 +10,15 @@ use crate::config::ExternalIpConfig;
 pub struct ExternalIpInfo {
     pub ip: Option<String>,
     pub country: Option<String>,
+    pub country_code: Option<String>,
     pub city: Option<String>,
+    pub region: Option<String>,
     pub isp: Option<String>,
     pub org: Option<String>,
     pub as_number: Option<String>,
+    pub latitude: Option<f64>,
+    pub longitude: Option<f64>,
+    pub timezone: Option<String>,
     #[allow(dead_code)]
     pub error: Option<String>,
 }
@@ -43,22 +48,40 @@ fn parse_json_ip(response: &str) -> Option<String> {
 }
 
 /// Parse JSON whois response from ipwho.is
-fn parse_json_whois(response: &str) -> (Option<String>, Option<String>, Option<String>, Option<String>, Option<String>) {
+fn parse_json_whois(response: &str) -> ExternalIpInfo {
     #[derive(Deserialize)]
     struct WhoisResponse {
         city: Option<String>,
         country: Option<String>,
+        country_code: Option<String>,
+        region: Option<String>,
         isp: Option<String>,
         org: Option<String>,
         asn: Option<String>,
+        latitude: Option<f64>,
+        longitude: Option<f64>,
+        timezone: Option<String>,
     }
 
     if let Ok(parsed) = serde_json::from_str::<WhoisResponse>(response) {
         let as_number = parsed.asn.map(|a| format!("AS{}", a));
-        return (parsed.city, parsed.country, parsed.isp, parsed.org, as_number);
+        return ExternalIpInfo {
+            ip: None,
+            city: parsed.city,
+            country: parsed.country,
+            country_code: parsed.country_code,
+            region: parsed.region,
+            isp: parsed.isp,
+            org: parsed.org,
+            as_number,
+            latitude: parsed.latitude,
+            longitude: parsed.longitude,
+            timezone: parsed.timezone,
+            error: None,
+        };
     }
 
-    (None, None, None, None, None)
+    ExternalIpInfo::default()
 }
 
 /// Fetch external IP from endpoint
@@ -133,22 +156,17 @@ pub async fn update_external_ip_info(config: &ExternalIpConfig) -> ExternalIpInf
     let (ip, whois_info, error) = match ip_result {
         Ok(ip) => {
             info!("External IP: {}", ip);
-            
+
             // Fetch whois info from ipwho.is
             let whois_url = format!("https://ipwho.is/{}", ip);
             let whois_result = fetch_whois_info(&whois_url, "").await;
-            
+
             match whois_result {
                 Ok(whois_text) => {
-                    let (city, country, isp, org, as_number) = parse_json_whois(&whois_text);
+                    let ip_info = parse_json_whois(&whois_text);
                     let ip_info = ExternalIpInfo {
                         ip: Some(ip.clone()),
-                        city,
-                        country,
-                        isp,
-                        org,
-                        as_number,
-                        error: None,
+                        ..ip_info
                     };
                     (Some(ip), Some(ip_info), None)
                 }
@@ -167,10 +185,15 @@ pub async fn update_external_ip_info(config: &ExternalIpConfig) -> ExternalIpInf
     ExternalIpInfo {
         ip,
         country: whois_info.as_ref().and_then(|i| i.country.clone()),
+        country_code: whois_info.as_ref().and_then(|i| i.country_code.clone()),
         city: whois_info.as_ref().and_then(|i| i.city.clone()),
+        region: whois_info.as_ref().and_then(|i| i.region.clone()),
         isp: whois_info.as_ref().and_then(|i| i.isp.clone()),
         org: whois_info.as_ref().and_then(|i| i.org.clone()),
         as_number: whois_info.as_ref().and_then(|i| i.as_number.clone()),
+        latitude: whois_info.as_ref().and_then(|i| i.latitude),
+        longitude: whois_info.as_ref().and_then(|i| i.longitude),
+        timezone: whois_info.as_ref().and_then(|i| i.timezone.clone()),
         error,
     }
 }

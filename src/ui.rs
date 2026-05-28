@@ -43,12 +43,32 @@ fn render_header(frame: &mut Frame, area: Rect, external_ip: Option<&ExternalIpI
     let ip_info = match external_ip {
         Some(info) => {
             if let Some(ref ip) = info.ip {
-                let location = match (&info.city, &info.country) {
-                    (Some(city), Some(country)) => format!("{}, {}", city, country),
-                    (Some(city), None) => city.clone(),
-                    (None, Some(country)) => country.clone(),
-                    _ => "Unknown".to_string(),
-                };
+                // Build location string with country code and region
+                let mut location_parts = Vec::new();
+                
+                // Add country with code
+                if let (Some(country), Some(code)) = (&info.country, &info.country_code) {
+                    location_parts.push(format!("{} {}", code, country));
+                } else if let Some(country) = &info.country {
+                    location_parts.push(country.clone());
+                }
+                
+                // Add region/state
+                if let Some(region) = &info.region {
+                    location_parts.push(region.clone());
+                }
+                
+                // Add city
+                if let Some(city) = &info.city {
+                    location_parts.push(city.clone());
+                }
+                
+                // Add coordinates if available
+                if let (Some(lat), Some(lon)) = (info.latitude, info.longitude) {
+                    location_parts.push(format!("{:.1}°N {:.1}°E", lat, lon));
+                }
+                
+                let location = location_parts.join(", ");
                 format!("🌍 {} ({})", ip, location)
             } else {
                 "🌍 Loading...".to_string()
@@ -58,8 +78,8 @@ fn render_header(frame: &mut Frame, area: Rect, external_ip: Option<&ExternalIpI
     };
 
     // Truncate IP info for smaller screens
-    let ip_display = if ip_info.len() > 35 {
-        format!("{}...", &ip_info[..32])
+    let ip_display = if ip_info.len() > 50 {
+        format!("{}...", &ip_info[..47])
     } else {
         ip_info
     };
