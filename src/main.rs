@@ -61,6 +61,7 @@ async fn main() -> Result<()> {
     let (shutdown_tx, _) = tokio::sync::broadcast::channel::<()>(1);
     let (tx, mut rx) = mpsc::channel::<(usize, PingResult)>(100);
     let (ip_tx, mut ip_rx) = mpsc::channel::<ExternalIpInfo>(5);
+    let (refresh_tx, mut refresh_rx) = tokio::sync::broadcast::channel::<()>(1);
 
     // Spawn external IP monitor
     external_ip::spawn_external_ip_monitor(config.external_ip.clone(), ip_tx, shutdown_tx.subscribe());
@@ -72,17 +73,27 @@ async fn main() -> Result<()> {
         let host = server.host.clone();
         let timeout = server.timeout_ms;
         let interval = Duration::from_secs(config.interval);
+        let mut refresh_rx_clone = refresh_rx.resubscribe();
 
         let mut shutdown_rx = shutdown_tx.subscribe();
         let handle = tokio::spawn(async move {
+            let mut interval_timer = tokio::time::interval(interval);
+
             loop {
                 tokio::select! {
                     _ = shutdown_rx.recv() => {
                         break;
                     }
-                    _ = tokio::time::sleep(interval) => {
+                    _ = interval_timer.tick() => {
                         let result = ping_host(host.clone(), timeout).await;
                         let _ = tx_clone.send((idx, result)).await;
+                    }
+                    _ = refresh_rx_clone.recv() => {
+                        // Manual refresh triggered
+                        let result = ping_host(host.clone(), timeout).await;
+                        let _ = tx_clone.send((idx, result)).await;
+                        // Reset interval timer
+                        interval_timer.reset();
                     }
                 }
             }
@@ -134,7 +145,8 @@ async fn main() -> Result<()> {
                     match key.code {
                         KeyCode::Char('q') => running = false,
                         KeyCode::Char('r') => {
-                            // Manual refresh - results will come from the ping tasks
+                            // Manual refresh - trigger all ping tasks
+                            let _ = refresh_tx.send(());
                         }
                         KeyCode::Enter if mode == AppMode::List => {
                             // Switch to detail mode
