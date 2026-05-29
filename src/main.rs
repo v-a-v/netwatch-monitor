@@ -13,6 +13,7 @@ use ratatui::prelude::*;
 use std::collections::VecDeque;
 use std::time::Duration;
 use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -58,13 +59,13 @@ async fn main() -> Result<()> {
     let mut terminal = Terminal::new(backend)?;
 
     // Create channels for communication
-    let (shutdown_tx, _) = tokio::sync::broadcast::channel::<()>(1);
+    let cancel_token = CancellationToken::new();
     let (tx, mut rx) = mpsc::channel::<(usize, PingResult)>(100);
     let (ip_tx, mut ip_rx) = mpsc::channel::<ExternalIpInfo>(5);
-    let (refresh_tx, mut refresh_rx) = tokio::sync::broadcast::channel::<()>(1);
+    let (refresh_tx, refresh_rx) = tokio::sync::broadcast::channel::<()>(1);
 
     // Spawn external IP monitor
-    external_ip::spawn_external_ip_monitor(config.external_ip.clone(), ip_tx, shutdown_tx.subscribe());
+    external_ip::spawn_external_ip_monitor(config.external_ip.clone(), ip_tx, cancel_token.clone());
 
     // Spawn ping tasks for each server
     let mut ping_handles = vec![];
@@ -74,14 +75,14 @@ async fn main() -> Result<()> {
         let timeout = server.timeout_ms;
         let interval = Duration::from_secs(config.interval);
         let mut refresh_rx_clone = refresh_rx.resubscribe();
+        let token = cancel_token.clone();
 
-        let mut shutdown_rx = shutdown_tx.subscribe();
         let handle = tokio::spawn(async move {
             let mut interval_timer = tokio::time::interval(interval);
 
             loop {
                 tokio::select! {
-                    _ = shutdown_rx.recv() => {
+                    _ = token.cancelled() => {
                         break;
                     }
                     _ = interval_timer.tick() => {
@@ -109,6 +110,14 @@ async fn main() -> Result<()> {
     let mut running = true;
     let mut mode = AppMode::List;
 
+    // Spawn Ctrl+C handler
+    let ctrl_c_token = cancel_token.clone();
+    tokio::spawn(async move {
+        if let Ok(()) = tokio::signal::ctrl_c().await {
+            ctrl_c_token.cancel();
+        }
+    });
+
     // For ping detail view
     let mut detail_ping_output: VecDeque<String> = VecDeque::new();
     let mut detail_stop_tx: Option<tokio::sync::mpsc::Sender<()>> = None;
@@ -116,7 +125,12 @@ async fn main() -> Result<()> {
     let mut detail_handle: Option<tokio::task::JoinHandle<()>> = None;
 
     // Main loop
-    while running {
+    while !cancel_token.is_cancelled() && running {
+        // Check for cancellation at start of each iteration
+        if cancel_token.is_cancelled() {
+            break;
+        }
+
         // Process ping results (only in list mode)
         if mode == AppMode::List {
             while let Ok((server_idx, ping_result)) = rx.try_recv() {
@@ -138,12 +152,19 @@ async fn main() -> Result<()> {
             // (handled by separate channel)
         }
 
-        // Handle user input
-        if event::poll(Duration::from_millis(100))? {
-            if let Event::Key(key) = event::read()? {
+        // Handle user input with short timeout for responsive exit
+        let input_ready = tokio::task::spawn_blocking(|| {
+            event::poll(Duration::from_millis(1)).unwrap_or(false)
+        });
+
+        if input_ready.await.unwrap_or(false) {
+            if let Ok(Event::Key(key)) = event::read() {
                 if key.kind == KeyEventKind::Press {
                     match key.code {
-                        KeyCode::Char('q') => running = false,
+                        KeyCode::Char('q') => {
+                            cancel_token.cancel();
+                            break;
+                        }
                         KeyCode::Char('r') => {
                             // Manual refresh - trigger all ping tasks
                             let _ = refresh_tx.send(());
@@ -236,9 +257,15 @@ async fn main() -> Result<()> {
 
     // Cleanup
     drop(tx);
+
+    // Cancel all tasks
+    cancel_token.cancel();
+
+    // Abort all tasks immediately
     for handle in ping_handles {
         handle.abort();
     }
+
     // Cleanup detail ping handle
     if let Some(stop_tx) = detail_stop_tx {
         let _ = stop_tx.send(()).await;
