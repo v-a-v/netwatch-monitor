@@ -44,12 +44,17 @@ impl PingStats {
                 .iter()
                 .filter_map(|r| r.latency_ms)
                 .collect();
-            
-            let min = latencies.iter().cloned().fold(f64::INFINITY, f64::min);
-            let max = latencies.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-            let avg = latencies.iter().sum::<f64>() / latencies.len() as f64;
-            
-            (min, avg, max)
+
+            if latencies.is_empty() {
+                // successful_pings > 0 but no latency data available
+                (0.0, 0.0, 0.0)
+            } else {
+                let min = latencies.iter().cloned().fold(f64::INFINITY, f64::min);
+                let max = latencies.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                let avg = latencies.iter().sum::<f64>() / latencies.len() as f64;
+
+                (min, avg, max)
+            }
         };
 
         let ttl = successful.first().and_then(|r| r.ttl);
@@ -199,7 +204,6 @@ async fn read_async_stderr(stderr: Option<&mut tokio::process::ChildStderr>) -> 
 /// Run continuous ping and yield results via channel
 pub async fn ping_host_continuous(
     host: String,
-    _timeout_ms: u64,
     tx: tokio::sync::mpsc::Sender<String>,
     mut stop_rx: tokio::sync::mpsc::Receiver<()>,
 ) {
@@ -208,10 +212,7 @@ pub async fn ping_host_continuous(
     let max_lines = 50;
 
     #[cfg(target_os = "windows")]
-    let timeout_str = timeout_ms.to_string();
-
-    #[cfg(target_os = "windows")]
-    let args = vec!["-t", "-w", timeout_str.as_str(), host.as_str()];
+    let args = vec!["-t", host.as_str()];
 
     #[cfg(not(target_os = "windows"))]
     // Linux: continuous ping without -c flag (no count limit)

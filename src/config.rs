@@ -15,18 +15,8 @@ fn default_timeout() -> u64 {
 
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct ExternalIpConfig {
-    #[serde(default = "default_ifconfig_endpoint")]
-    #[allow(dead_code)]
-    pub endpoint: String,
-    #[serde(default, skip)]
-    #[allow(dead_code)]
-    pub _whois_endpoint: String, // Kept for config compatibility but not used
     #[serde(default = "default_check_interval")]
     pub check_interval_sec: u64,
-}
-
-fn default_ifconfig_endpoint() -> String {
-    "https://ifconfig.io/ip".to_string()
 }
 
 fn default_check_interval() -> u64 {

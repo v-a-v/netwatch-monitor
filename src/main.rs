@@ -11,8 +11,6 @@ use crossterm::{
 };
 use ratatui::prelude::*;
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -23,6 +21,27 @@ use config::Config;
 use external_ip::ExternalIpInfo;
 use ping::{ping_host, ping_host_continuous, PingResult};
 use ui::{render, render_ping_detail};
+
+// Drop-guard for terminal restoration
+struct TerminalGuard;
+
+impl TerminalGuard {
+    fn new() -> Self {
+        Self
+    }
+}
+
+impl Drop for TerminalGuard {
+    fn drop(&mut self) {
+        // Restore terminal
+        if let Err(e) = execute!(std::io::stdout(), LeaveAlternateScreen, DisableMouseCapture) {
+            eprintln!("Failed to restore terminal: {}", e);
+        }
+        if let Err(e) = disable_raw_mode() {
+            eprintln!("Failed to disable raw mode: {}", e);
+        }
+    }
+}
 
 #[derive(PartialEq, Clone, Copy)]
 enum AppMode {
@@ -59,6 +78,7 @@ async fn main() -> Result<()> {
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
+    let _terminal_guard = TerminalGuard::new();
 
     // Create channels for communication
     let cancel_token = CancellationToken::new();
@@ -109,12 +129,9 @@ async fn main() -> Result<()> {
     let history_size = config.history_size;
     let mut selected_server: usize = 0;
     let mut external_ip_info: Option<ExternalIpInfo> = None;
-    let mut running = true;
     let mut mode = AppMode::List;
 
     // Set up signal handler for graceful shutdown
-    let running_flag = Arc::new(AtomicBool::new(true));
-    let sig_flag = running_flag.clone();
     let cancel_token_for_signal = cancel_token.clone();
     tokio::spawn(async move {
         // Handle both SIGINT (Ctrl+C) and SIGTERM
@@ -127,10 +144,9 @@ async fn main() -> Result<()> {
 
         tokio::select! {
             _ = ctrl_c => {
-                sig_flag.store(false, Ordering::Relaxed);
+                cancel_token_for_signal.cancel();
             }
             _ = sigterm => {
-                sig_flag.store(false, Ordering::Relaxed);
                 cancel_token_for_signal.cancel();
             }
         }
@@ -143,7 +159,7 @@ async fn main() -> Result<()> {
     let mut detail_handle: Option<tokio::task::JoinHandle<()>> = None;
 
     // Main loop
-    while !cancel_token.is_cancelled() && running && running_flag.load(Ordering::Relaxed) {
+    while !cancel_token.is_cancelled() {
         // Check for cancellation at start of each iteration
         if cancel_token.is_cancelled() {
             break;
@@ -181,9 +197,7 @@ async fn main() -> Result<()> {
                 if key.kind == KeyEventKind::Press {
                     match key.code {
                         KeyCode::Char('q') => {
-                            running_flag.store(false, Ordering::Relaxed);
-                            running = false;
-                            // Exit main loop immediately
+                            cancel_token.cancel();
                             break;
                         }
                         KeyCode::Char('r') => {
@@ -203,9 +217,8 @@ async fn main() -> Result<()> {
                             detail_ping_rx = Some(detail_rx);
                             
                             let host = server.host.clone();
-                            let timeout = server.timeout_ms;
                             detail_handle = Some(tokio::spawn(async move {
-                                ping_host_continuous(host, timeout, detail_tx, stop_rx).await;
+                                ping_host_continuous(host, detail_tx, stop_rx).await;
                             }));
                         }
                         KeyCode::Esc if mode == AppMode::PingDetail => {
@@ -295,17 +308,7 @@ async fn main() -> Result<()> {
         let _ = tokio::time::timeout(Duration::from_millis(300), handle).await;
     }
 
-    // Drop terminal before restoring (important for crossterm)
-    drop(terminal);
-
-    // Restore terminal before exiting
-    if let Err(e) = execute!(std::io::stdout(), LeaveAlternateScreen, DisableMouseCapture) {
-        eprintln!("Failed to restore terminal: {}", e);
-    }
-    if let Err(e) = disable_raw_mode() {
-        eprintln!("Failed to disable raw mode: {}", e);
-    }
-
+    // Terminal restoration happens automatically via TerminalGuard::drop()
     info!("NetWatch Monitor stopped");
     Ok(())
 }
