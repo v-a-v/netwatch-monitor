@@ -115,9 +115,24 @@ async fn main() -> Result<()> {
     // Set up signal handler for graceful shutdown
     let running_flag = Arc::new(AtomicBool::new(true));
     let sig_flag = running_flag.clone();
+    let cancel_token_for_signal = cancel_token.clone();
     tokio::spawn(async move {
-        if let Ok(()) = tokio::signal::ctrl_c().await {
-            sig_flag.store(false, Ordering::Relaxed);
+        // Handle both SIGINT (Ctrl+C) and SIGTERM
+        let ctrl_c = tokio::signal::ctrl_c();
+        let sigterm = async {
+            if let Ok(mut s) = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+                s.recv().await;
+            }
+        };
+
+        tokio::select! {
+            _ = ctrl_c => {
+                sig_flag.store(false, Ordering::Relaxed);
+            }
+            _ = sigterm => {
+                sig_flag.store(false, Ordering::Relaxed);
+                cancel_token_for_signal.cancel();
+            }
         }
     });
 
@@ -156,6 +171,11 @@ async fn main() -> Result<()> {
         }
 
         // Handle user input
+        // Check cancellation first to avoid blocking on poll
+        if cancel_token.is_cancelled() {
+            break;
+        }
+
         if event::poll(Duration::from_millis(10)).unwrap_or(false) {
             if let Ok(Event::Key(key)) = event::read() {
                 if key.kind == KeyEventKind::Press {
@@ -163,6 +183,7 @@ async fn main() -> Result<()> {
                         KeyCode::Char('q') => {
                             running_flag.store(false, Ordering::Relaxed);
                             running = false;
+                            // Exit main loop immediately
                             break;
                         }
                         KeyCode::Char('r') => {
@@ -201,12 +222,6 @@ async fn main() -> Result<()> {
                                 while rx.try_recv().is_ok() {}
                             }
                             mode = AppMode::List;
-                        }
-                        KeyCode::Char('q') if mode == AppMode::PingDetail => {
-                            // Exit on q in any mode
-                            running_flag.store(false, Ordering::Relaxed);
-                            running = false;
-                            break;
                         }
                         KeyCode::Up | KeyCode::Char('k') if mode == AppMode::List => {
                             if selected_server > 0 {
@@ -264,25 +279,32 @@ async fn main() -> Result<()> {
     // Cleanup
     drop(tx);
 
-    // Cancel all tasks
+    // First, stop detail ping if running
+    if let Some(stop_tx) = detail_stop_tx.take() {
+        let _ = stop_tx.send(()).await;
+    }
+    if let Some(handle) = detail_handle {
+        let _ = tokio::time::timeout(Duration::from_millis(300), handle).await;
+    }
+
+    // Cancel all background tasks
     cancel_token.cancel();
 
     // Wait for ping tasks to finish (with timeout), then abort
     for handle in ping_handles {
-        let _ = tokio::time::timeout(Duration::from_millis(100), handle).await;
+        let _ = tokio::time::timeout(Duration::from_millis(300), handle).await;
     }
 
-    // Cleanup detail ping handle
-    if let Some(stop_tx) = detail_stop_tx {
-        let _ = stop_tx.send(()).await;
-    }
-    if let Some(handle) = detail_handle {
-        let _ = tokio::time::timeout(Duration::from_millis(100), handle).await;
-    }
+    // Drop terminal before restoring (important for crossterm)
+    drop(terminal);
 
     // Restore terminal before exiting
-    execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
-    disable_raw_mode()?;
+    if let Err(e) = execute!(std::io::stdout(), LeaveAlternateScreen, DisableMouseCapture) {
+        eprintln!("Failed to restore terminal: {}", e);
+    }
+    if let Err(e) = disable_raw_mode() {
+        eprintln!("Failed to disable raw mode: {}", e);
+    }
 
     info!("NetWatch Monitor stopped");
     Ok(())

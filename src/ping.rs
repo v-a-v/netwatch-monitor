@@ -1,6 +1,7 @@
 use chrono::Utc;
+use std::time::Duration;
 
-use tokio::io::AsyncBufReadExt;
+use tokio::io::{AsyncBufReadExt, AsyncReadExt};
 
 /// Result of a single ping attempt
 #[derive(Debug, Clone)]
@@ -81,34 +82,57 @@ impl PingStats {
 pub async fn ping_host(host: String, timeout_ms: u64) -> PingResult {
     let timestamp = chrono::Utc::now();
 
-    // Use std::process for cross-platform ping
-    let result = tokio::task::spawn_blocking(move || {
-        #[cfg(target_os = "windows")]
-        let output = std::process::Command::new("ping")
-            .args(["-n", "1", "-w", &timeout_ms.to_string(), &host])
-            .output();
+    // Use tokio::process::Command with kill_on_drop for cancellable execution
+    #[cfg(target_os = "windows")]
+    let args = vec!["-n", "1", "-w", &timeout_ms.to_string(), host.as_str()];
 
-        #[cfg(not(target_os = "windows"))]
-        let output = std::process::Command::new("ping")
-            .args(["-c", "1", "-W", &timeout_ms.to_string(), &host])
-            .output();
+    #[cfg(not(target_os = "windows"))]
+    // Linux ping -W accepts seconds, not milliseconds - convert ms to sec
+    let timeout_sec = ((timeout_ms + 999) / 1000).max(1).to_string();
+    let args = vec!["-c", "1", "-W", timeout_sec.as_str(), host.as_str()];
 
-        match output {
-            Ok(out) if out.status.success() => {
-                let stdout = String::from_utf8_lossy(&out.stdout);
+    let mut child = match tokio::process::Command::new("ping")
+        .args(&args)
+        .kill_on_drop(true)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(_) => {
+            return PingResult {
+                timestamp,
+                success: false,
+                latency_ms: None,
+                ttl: None,
+                dns_error: None,
+            };
+        }
+    };
+
+    // Take ownership of stdout/stderr before waiting
+    let mut stdout = child.stdout.take();
+    let mut stderr = child.stderr.take();
+
+    // Wait for the process with a timeout (slightly longer than ping's own timeout)
+    let timeout_with_margin = Duration::from_millis(timeout_ms + 500);
+    
+    tokio::time::timeout(timeout_with_margin, async {
+        match child.wait().await {
+            Ok(status) if status.success() => {
+                let stdout_data = read_async_stdout(stdout.as_mut()).await;
                 PingResult {
                     timestamp,
                     success: true,
-                    latency_ms: extract_latency(&stdout),
-                    ttl: extract_ttl(&stdout),
+                    latency_ms: extract_latency(&stdout_data),
+                    ttl: extract_ttl(&stdout_data),
                     dns_error: None,
                 }
             }
-            Ok(out) => {
-                // Check for DNS resolution errors
-                let stderr = String::from_utf8_lossy(&out.stderr);
-                let stdout = String::from_utf8_lossy(&out.stdout);
-                let combined = format!("{} {}", stdout, stderr).to_lowercase();
+            Ok(_) => {
+                let stdout_data = read_async_stdout(stdout.as_mut()).await;
+                let stderr_data = read_async_stderr(stderr.as_mut()).await;
+                let combined = format!("{} {}", stdout_data, stderr_data).to_lowercase();
                 
                 let dns_error = if combined.contains("unknown") 
                     || combined.contains("could not find")
@@ -141,55 +165,79 @@ pub async fn ping_host(host: String, timeout_ms: u64) -> PingResult {
         }
     })
     .await
-    .unwrap_or(PingResult {
+    .unwrap_or_else(|_| PingResult {
         timestamp,
         success: false,
         latency_ms: None,
         ttl: None,
-        dns_error: None,
-    });
+        dns_error: Some("Ping timeout exceeded".to_string()),
+    })
+}
 
-    result
+/// Helper to read stdout from tokio child process
+async fn read_async_stdout(stdout: Option<&mut tokio::process::ChildStdout>) -> String {
+    if let Some(stdout) = stdout {
+        let mut buf = Vec::new();
+        let _ = stdout.read_to_end(&mut buf).await;
+        String::from_utf8_lossy(&buf).to_string()
+    } else {
+        String::new()
+    }
+}
+
+/// Helper to read stderr from tokio child process
+async fn read_async_stderr(stderr: Option<&mut tokio::process::ChildStderr>) -> String {
+    if let Some(stderr) = stderr {
+        let mut buf = Vec::new();
+        let _ = stderr.read_to_end(&mut buf).await;
+        String::from_utf8_lossy(&buf).to_string()
+    } else {
+        String::new()
+    }
 }
 
 /// Run continuous ping and yield results via channel
 pub async fn ping_host_continuous(
     host: String,
-    timeout_ms: u64,
+    _timeout_ms: u64,
     tx: tokio::sync::mpsc::Sender<String>,
     mut stop_rx: tokio::sync::mpsc::Receiver<()>,
 ) {
     use std::collections::VecDeque;
-        let mut lines_buf: VecDeque<String> = VecDeque::new();
+    let mut lines_buf: VecDeque<String> = VecDeque::new();
     let max_lines = 50;
-    
+
+    #[cfg(target_os = "windows")]
     let timeout_str = timeout_ms.to_string();
-    
+
     #[cfg(target_os = "windows")]
     let args = vec!["-t", "-w", timeout_str.as_str(), host.as_str()];
-    
-    #[cfg(not(target_os = "windows"))]
-    let args = vec!["-W", timeout_str.as_str(), host.as_str()];
 
-    // Spawn ping process
+    #[cfg(not(target_os = "windows"))]
+    // Linux: continuous ping without -c flag (no count limit)
+    let args = vec![host.as_str()];
+
+    // Spawn ping process with kill_on_drop for automatic cleanup
     #[cfg(target_os = "windows")]
     let child = tokio::process::Command::new("ping")
         .args(&args)
+        .kill_on_drop(true)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
-                .spawn();
+        .spawn();
 
     #[cfg(not(target_os = "windows"))]
     let child = tokio::process::Command::new("ping")
         .args(&args)
+        .kill_on_drop(true)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
-                .spawn();
+        .spawn();
 
     if let Ok(mut child) = child {
         if let Some(stdout) = child.stdout.take() {
             let mut reader = tokio::io::BufReader::new(stdout).lines();
-            
+
             loop {
                 tokio::select! {
                     _ = stop_rx.recv() => {
