@@ -155,17 +155,14 @@ async fn main() -> Result<()> {
             // (handled by separate channel)
         }
 
-        // Handle user input with short timeout for responsive exit
-        let input_ready = tokio::task::spawn_blocking(|| {
-            event::poll(Duration::from_millis(1)).unwrap_or(false)
-        });
-
-        if input_ready.await.unwrap_or(false) {
+        // Handle user input
+        if event::poll(Duration::from_millis(10)).unwrap_or(false) {
             if let Ok(Event::Key(key)) = event::read() {
                 if key.kind == KeyEventKind::Press {
                     match key.code {
                         KeyCode::Char('q') => {
                             running_flag.store(false, Ordering::Relaxed);
+                            running = false;
                             break;
                         }
                         KeyCode::Char('r') => {
@@ -204,6 +201,12 @@ async fn main() -> Result<()> {
                                 while rx.try_recv().is_ok() {}
                             }
                             mode = AppMode::List;
+                        }
+                        KeyCode::Char('q') if mode == AppMode::PingDetail => {
+                            // Exit on q in any mode
+                            running_flag.store(false, Ordering::Relaxed);
+                            running = false;
+                            break;
                         }
                         KeyCode::Up | KeyCode::Char('k') if mode == AppMode::List => {
                             if selected_server > 0 {
@@ -249,7 +252,7 @@ async fn main() -> Result<()> {
                         }
                 }
             }
-            
+
             let server = &config.servers[selected_server];
             terminal.draw(|frame| {
                 let joined = detail_ping_output.iter().cloned().collect::<Vec<_>>().join("\n");
