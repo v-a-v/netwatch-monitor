@@ -264,9 +264,9 @@ async fn main() -> Result<()> {
     // Cancel all tasks
     cancel_token.cancel();
 
-    // Abort all tasks immediately
+    // Wait for ping tasks to finish (with timeout), then abort
     for handle in ping_handles {
-        handle.abort();
+        let _ = tokio::time::timeout(Duration::from_millis(100), handle).await;
     }
 
     // Cleanup detail ping handle
@@ -274,9 +274,10 @@ async fn main() -> Result<()> {
         let _ = stop_tx.send(()).await;
     }
     if let Some(handle) = detail_handle {
-        handle.abort();
+        let _ = tokio::time::timeout(Duration::from_millis(100), handle).await;
     }
 
+    // Restore terminal before exiting
     execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
     disable_raw_mode()?;
 
