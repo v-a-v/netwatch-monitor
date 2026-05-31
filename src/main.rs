@@ -11,6 +11,8 @@ use crossterm::{
 };
 use ratatui::prelude::*;
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -110,11 +112,12 @@ async fn main() -> Result<()> {
     let mut running = true;
     let mut mode = AppMode::List;
 
-    // Spawn Ctrl+C handler
-    let ctrl_c_token = cancel_token.clone();
+    // Set up signal handler for graceful shutdown
+    let running_flag = Arc::new(AtomicBool::new(true));
+    let sig_flag = running_flag.clone();
     tokio::spawn(async move {
         if let Ok(()) = tokio::signal::ctrl_c().await {
-            ctrl_c_token.cancel();
+            sig_flag.store(false, Ordering::Relaxed);
         }
     });
 
@@ -125,7 +128,7 @@ async fn main() -> Result<()> {
     let mut detail_handle: Option<tokio::task::JoinHandle<()>> = None;
 
     // Main loop
-    while !cancel_token.is_cancelled() && running {
+    while !cancel_token.is_cancelled() && running && running_flag.load(Ordering::Relaxed) {
         // Check for cancellation at start of each iteration
         if cancel_token.is_cancelled() {
             break;
@@ -162,7 +165,7 @@ async fn main() -> Result<()> {
                 if key.kind == KeyEventKind::Press {
                     match key.code {
                         KeyCode::Char('q') => {
-                            cancel_token.cancel();
+                            running_flag.store(false, Ordering::Relaxed);
                             break;
                         }
                         KeyCode::Char('r') => {
