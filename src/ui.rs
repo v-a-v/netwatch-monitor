@@ -111,11 +111,19 @@ fn render_server_list(
         .iter()
         .enumerate()
         .map(|(i, server)| {
-            let stats = PingStats::from_results(&results[i]);
+            let results_slice = &results[i];
+            let stats = PingStats::from_results(results_slice);
+
+            // Calculate timeout threshold: number of attempts = timeout_ms / interval
+            // Assuming 2-second interval, timeout determines when we should show loss
+            let timeout_sec = server.timeout_ms as f64 / 1000.0;
+            let interval_sec = 2.0; // Config default
+            let timeout_attempts = (timeout_sec / interval_sec).ceil() as usize;
 
             let status = if let Some(ref dns_err) = stats.dns_error {
                 format!("🚫 {}", dns_err)
             } else if stats.successful_pings > 0 {
+                // Host is reachable - show packet loss
                 if stats.packet_loss_percent > 50.0 {
                     format!("🔴 {:.1}% loss", stats.packet_loss_percent)
                 } else if stats.packet_loss_percent > 20.0 {
@@ -123,8 +131,12 @@ fn render_server_list(
                 } else {
                     format!("🟢 {:.1}% loss", stats.packet_loss_percent)
                 }
+            } else if results_slice.len() >= timeout_attempts {
+                // No successful pings but timeout threshold reached - show 100% loss
+                format!("🔴 100.0% loss")
             } else {
-                "NO DATA".into()
+                // Still waiting for first response within timeout window
+                "WAITING".into()
             };
 
             let ttl = stats.ttl.map(|t| t.to_string()).unwrap_or_else(|| "--".into());
