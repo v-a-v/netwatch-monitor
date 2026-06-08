@@ -94,7 +94,7 @@ async fn main() -> Result<()> {
     for (idx, server) in config.servers.iter().enumerate() {
         let tx_clone = tx.clone();
         let host = server.host.clone();
-        let timeout = server.timeout_ms;
+        let timeout = config.timeout_ms;
         let interval = Duration::from_secs(config.interval);
         let mut refresh_rx_clone = refresh_rx.resubscribe();
         let token = cancel_token.clone();
@@ -268,7 +268,7 @@ async fn main() -> Result<()> {
 
             // Render UI
             terminal.draw(|frame| {
-                render(frame, &config.servers, &results_vec, selected_server, external_ip_info.as_ref());
+                render(frame, &config.servers, &results_vec, selected_server, external_ip_info.as_ref(), config.timeout_ms, config.interval);
             })?;
         } else {
             // In detail mode, try to get latest ping output

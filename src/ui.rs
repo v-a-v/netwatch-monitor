@@ -16,6 +16,8 @@ pub fn render(
     results: &[Vec<PingResult>],
     selected: usize,
     external_ip: Option<&ExternalIpInfo>,
+    timeout_ms: u64,
+    interval_sec: u64,
 ) {
     let size = frame.area();
 
@@ -30,7 +32,7 @@ pub fn render(
         .split(size);
 
     render_header(frame, chunks[0], external_ip);
-    render_server_list(frame, chunks[1], servers, results, selected);
+    render_server_list(frame, chunks[1], servers, results, selected, timeout_ms, interval_sec);
     render_stats(frame, chunks[2], &results[selected]);
     render_help(frame, chunks[3]);
 }
@@ -106,6 +108,8 @@ fn render_server_list(
     servers: &[ServerConfig],
     results: &[Vec<PingResult>],
     selected: usize,
+    timeout_ms: u64,
+    interval_sec: u64,
 ) {
     let rows: Vec<Row> = servers
         .iter()
@@ -116,9 +120,8 @@ fn render_server_list(
 
             // Calculate timeout threshold: number of attempts = timeout_ms / interval
             // Using minimum of 3 attempts to give host time to become reachable
-            let timeout_sec = server.timeout_ms as f64 / 1000.0;
-            let interval_sec = 2.0; // Config default
-            let timeout_attempts = ((timeout_sec / interval_sec).ceil() as usize).max(3);
+            let timeout_sec = timeout_ms as f64 / 1000.0;
+            let timeout_attempts = ((timeout_sec / interval_sec as f64).ceil() as usize).max(3);
 
             let status = if let Some(ref dns_err) = stats.dns_error {
                 format!("🚫 {}", dns_err)

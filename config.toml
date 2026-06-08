@@ -4,6 +4,9 @@
 # Ping interval in seconds
 interval = 2
 
+# Ping timeout in milliseconds (applies to all servers)
+timeout_ms = 2000
+
 # History size (number of samples to keep per server)
 history_size = 120
 
@@ -23,39 +26,31 @@ check_interval_sec = 300
 [[servers]]
 name = "Gateway"
 host = "192.168.1.1"
-timeout_ms = 1000
 
 [[servers]]
 name = "Google DNS 1"
 host = "8.8.8.8"
-timeout_ms = 1000
 
 [[servers]]
 name = "Google DNS 2"
 host = "8.8.4.4"
-timeout_ms = 1000
 
 [[servers]]
 name = "Cloudflare DNS"
 host = "1.1.1.1"
-timeout_ms = 1000
 
 [[servers]]
 name = "Yandex DNS"
 host = "77.88.8.8"
-timeout_ms = 1000
 
 [[servers]]
 name = "Google HTTPS"
 host = "google.com"
-timeout_ms = 2000
 
 [[servers]]
 name = "GitHub"
 host = "github.com"
-timeout_ms = 2000
 
 [[servers]]
 name = "Yandex"
 host = "ya.ru"
-timeout_ms = 2000
