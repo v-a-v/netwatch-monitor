@@ -59,10 +59,15 @@ impl PingStats {
 
         let ttl = successful.first().and_then(|r| r.ttl);
         
-        // Get DNS error from first failed result
-        let dns_error = results.iter()
-            .find(|r| !r.success && r.dns_error.is_some())
-            .and_then(|r| r.dns_error.clone());
+        // Get DNS error from first failed result ONLY if no successful pings
+        // This ensures dns_error doesn't persist after host becomes reachable
+        let dns_error = if successful_count == 0 {
+            results.iter()
+                .find(|r| !r.success && r.dns_error.is_some())
+                .and_then(|r| r.dns_error.clone())
+        } else {
+            None
+        };
 
         let packet_loss = if total > 0 {
             ((total - successful_count) as f64 / total as f64) * 100.0

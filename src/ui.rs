@@ -115,10 +115,10 @@ fn render_server_list(
             let stats = PingStats::from_results(results_slice);
 
             // Calculate timeout threshold: number of attempts = timeout_ms / interval
-            // Assuming 2-second interval, timeout determines when we should show loss
+            // Using minimum of 3 attempts to give host time to become reachable
             let timeout_sec = server.timeout_ms as f64 / 1000.0;
             let interval_sec = 2.0; // Config default
-            let timeout_attempts = (timeout_sec / interval_sec).ceil() as usize;
+            let timeout_attempts = ((timeout_sec / interval_sec).ceil() as usize).max(3);
 
             let status = if let Some(ref dns_err) = stats.dns_error {
                 format!("🚫 {}", dns_err)
