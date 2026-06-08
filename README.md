@@ -68,6 +68,9 @@ sudo install -Dm755 target/release/netwatch-monitor /usr/local/bin/netwatch-moni
 # Интервал пинга в секундах
 interval = 2
 
+# Таймаут ping в миллисекундах (применяется ко всем серверам)
+timeout_ms = 2000
+
 # Размер истории (количество сэмплов на сервер)
 history_size = 120
 
@@ -87,23 +90,27 @@ check_interval_sec = 300
 [[servers]]
 name = "Gateway"
 host = "192.168.1.1"
-timeout_ms = 1000
 
 [[servers]]
 name = "Google DNS"
 host = "8.8.8.8"
-timeout_ms = 1000
 
 [[servers]]
 name = "Cloudflare DNS"
 host = "1.1.1.1"
-timeout_ms = 1000
 
 [[servers]]
 name = "GitHub"
 host = "github.com"
-timeout_ms = 2000
 ```
+
+### Глобальные параметры
+
+| Параметр | Описание | По умолчанию |
+|----------|----------|--------------|
+| `interval` | Интервал пинга в секундах | 2 |
+| `timeout_ms` | Таймаут ping в миллисекундах (для всех серверов) | 2000 |
+| `history_size` | Количество сэмплов истории на сервер | 120 |
 
 ### Параметры сервера
 
@@ -111,7 +118,6 @@ timeout_ms = 2000
 |----------|----------|--------------|
 | `name` | Отображаемое имя сервера | - |
 | `host` | IP адрес или доменное имя | - |
-| `timeout_ms` | Таймаут ping в миллисекундах | 1000 |
 
 ## Управление
 
